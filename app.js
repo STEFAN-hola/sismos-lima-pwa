@@ -12,7 +12,8 @@ var defaults = {
   reminderOn:true,
   bienSent:false,
   sentStatus:["pendiente","pendiente","pendiente"],
-  directoryTab:"emerg"
+  directoryTab:"emerg",
+  lastAlertedId:null
 };
 var state = load();
 
@@ -28,6 +29,100 @@ function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
 }
 function set(patch){ Object.assign(state, patch); save(); render(); }
+
+/* ---------------- seismic (Fase 2: datos reales USGS) ---------------- */
+var seismic = { status:"loading", fetchedAt:0, online:(navigator.onLine!==false), quakes:[], last:null };
+var ALERT_RULE = { minMag:5.0, radiusKm:300, windowMin:15 };
+var seismicStarted = false;
+
+function hydrateSeismicFromCache(){
+  var c = Seismic.loadCache();
+  if(c && c.quakes){
+    seismic.quakes = c.quakes;
+    seismic.last = c.quakes[0] || null;
+    seismic.fetchedAt = c.fetchedAt || 0;
+    seismic.status = "cache";
+  }
+}
+
+function refreshSeismic(){
+  if(navigator.onLine===false){
+    seismic.online = false;
+    seismic.status = seismic.fetchedAt ? "cache" : "offline";
+    rerenderIfHome();
+    return;
+  }
+  seismic.online = true;
+  if(!seismic.fetchedAt) seismic.status = "loading";
+  Seismic.fetchRecent().then(function(data){
+    seismic.quakes = data.quakes;
+    seismic.last = data.quakes[0] || null;
+    seismic.fetchedAt = data.fetchedAt;
+    seismic.status = "ok";
+    autoAlertCheck();
+    rerenderIfHome();
+  }).catch(function(){
+    seismic.online = false;
+    seismic.status = seismic.fetchedAt ? "cache" : "error";
+    rerenderIfHome();
+  });
+}
+
+function autoAlertCheck(){
+  if(state.alertActive) return;
+  var now = Date.now();
+  for(var i=0;i<seismic.quakes.length;i++){
+    var q = seismic.quakes[i];
+    if(q.mag >= ALERT_RULE.minMag
+       && q.distKm <= ALERT_RULE.radiusKm
+       && (now - q.time) <= ALERT_RULE.windowMin*60*1000
+       && q.id !== state.lastAlertedId){
+      triggerAlert(q);
+      return;
+    }
+  }
+}
+
+function rerenderIfHome(){ if(state.screen==="home") render(); }
+
+function startSeismic(){
+  if(seismicStarted) return; seismicStarted = true;
+  refreshSeismic();
+  setInterval(refreshSeismic, 60000);
+  window.addEventListener("online", function(){ seismic.online=true; refreshSeismic(); });
+  window.addEventListener("offline", function(){ seismic.online=false; seismic.status = seismic.fetchedAt?"cache":"offline"; rerenderIfHome(); });
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden) refreshSeismic(); });
+}
+
+function seismicCard(){
+  var s = seismic;
+  var head = '<div class="eyebrow" style="padding:18px 24px 10px">Actividad sísmica reciente</div>';
+  var body;
+  if(s.status==="loading" && !s.last){
+    body = '<div class="seis-card"><div class="seis-main">Buscando sismos cerca de Lima…</div></div>';
+  } else if(!s.last){
+    var msg = (!s.online || s.status==="offline" || s.status==="error")
+      ? "Sin conexión. Se actualizará cuando vuelvas a tener internet."
+      : "Sin sismos registrados cerca de Lima en las últimas 24 h.";
+    body = '<div class="seis-card"><div class="seis-main">'+msg+'</div></div>';
+  } else {
+    var q = s.last;
+    var mag = Number(q.mag).toFixed(1);
+    var sev = q.mag>=5 ? "hi" : (q.mag>=4 ? "mid" : "lo");
+    var place = q.place ? esc(q.place) : ("a "+q.distKm+" km de Lima");
+    var depth = (typeof q.depth==="number") ? (Math.round(q.depth)+" km prof.") : "";
+    var updated = s.online
+      ? ("Actualizado "+Seismic.timeAgo(s.fetchedAt))
+      : ("Sin conexión · datos de "+Seismic.timeAgo(s.fetchedAt));
+    body = '<div class="seis-card">'
+      + '<div class="seis-mag '+sev+'">'+mag+'</div>'
+      + '<div class="seis-info"><b>'+place+'</b>'
+        + '<small>'+Seismic.timeAgo(q.time)+' · '+q.distKm+' km de Lima'+(depth?(' · '+depth):'')+'</small></div>'
+      + '</div>'
+      + '<div class="seis-updated"><span class="dot '+(s.online?'on':'off')+'"></span>'+updated+' · fuente USGS</div>';
+  }
+  return head + '<div style="padding:0 24px">'+body+'</div>';
+}
 
 /* ---------------- data ---------------- */
 var VULN = [
@@ -126,6 +221,7 @@ function screenHome(){
       + '<div class="sc-prep"><span>Preparación</span><span>'+pct+'%</span></div>'
       + '<div class="prep-track"><div class="prep-fill" style="width:'+pct+'%"></div></div>'
     + '</div>'
+    + seismicCard()
     + '<div class="eyebrow" style="padding:20px 24px 12px">Qué quieres hacer</div>'
     + '<div class="grid2">'
       + tile("casa","blue","home","Revisar<br>mi casa")
@@ -300,10 +396,13 @@ function screenDir(){
 function screenAlerta(){
   var s = el('<div class="alerta"></div>');
   var steps = [["1","AGÁCHATE"],["2","CÚBRETE"],["3","SUJÉTATE"]];
+  var magLine = currentAlertQuake
+    ? ('Mag '+Number(currentAlertQuake.mag).toFixed(1)+' · '+(currentAlertQuake.place?esc(currentAlertQuake.place):('a '+currentAlertQuake.distKm+' km de Lima')))
+    : 'Movimiento fuerte detectado · Mag. ~6.1 (demo)';
   s.innerHTML = statusBar(true)
   + '<div class="a-body">'
     + '<div class="a-eyebrow">Sismo en curso</div>'
-    + '<div class="a-mag">Movimiento fuerte detectado · Mag. ~6.1</div>'
+    + '<div class="a-mag">'+magLine+'</div>'
     + steps.map(function(st){ return '<div class="a-card"><div class="num">'+st[0]+'</div><div class="word">'+st[1]+'</div></div>'; }).join("")
     + '<div class="a-reinforce">No corras.<br>No uses el ascensor.</div>'
   + '</div>'
@@ -315,8 +414,12 @@ function screenAlerta(){
   return s;
 }
 
-function triggerAlert(){
-  set({alertActive:true, screen:"alerta"});
+var currentAlertQuake = null;
+function triggerAlert(quake){
+  currentAlertQuake = quake || null;
+  var patch = {alertActive:true, screen:"alerta"};
+  if(quake && quake.id){ patch.lastAlertedId = quake.id; }
+  set(patch);
   if(navigator.vibrate){ try{navigator.vibrate([200,100,200]);}catch(e){} }
 }
 
@@ -338,4 +441,8 @@ function render(){
   }
   device.appendChild(view);
 }
+
+/* ---------------- init ---------------- */
+hydrateSeismicFromCache();
 render();
+startSeismic();

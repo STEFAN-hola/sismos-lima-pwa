@@ -1,10 +1,11 @@
 /* Service worker — app shell offline-first.
    Sube CACHE_VERSION cada vez que cambies index/styles/app para forzar actualización. */
-var CACHE_VERSION = "sismos-lima-v1";
+var CACHE_VERSION = "sismos-lima-v2";
 var APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
+  "./seismic.js",
   "./app.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",

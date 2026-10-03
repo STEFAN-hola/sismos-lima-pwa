@@ -106,6 +106,21 @@ svg.ic{display:block}
 .tile.green{background:var(--verde-suave);color:var(--verde-texto)}
 .tile.green .ic{color:var(--verde-oscuro)}
 
+/* ---------- actividad sísmica (Fase 2) ---------- */
+.seis-card{display:flex;align-items:center;gap:14px;background:var(--superficie);border:1.5px solid var(--linea);border-radius:20px;padding:14px 16px}
+.seis-card .seis-main{font-size:15px;font-weight:600;color:var(--texto-apoyo)}
+.seis-mag{width:56px;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;flex:none;font-variant-numeric:tabular-nums}
+.seis-mag.lo{background:var(--verde-suave);color:var(--verde-oscuro)}
+.seis-mag.mid{background:var(--ambar-fondo);color:var(--ambar-texto)}
+.seis-mag.hi{background:#FCE4E8;color:var(--rojo-oscuro)}
+.seis-info{flex:1;min-width:0}
+.seis-info b{display:block;font-size:17px;font-weight:700;color:var(--tinta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seis-info small{font-size:13px;font-weight:600;color:var(--texto-apoyo)}
+.seis-updated{display:flex;align-items:center;gap:8px;padding:8px 24px 0;font-size:12px;font-weight:600;color:var(--texto-apoyo)}
+.seis-updated .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.seis-updated .dot.on{background:var(--verde-seguro)}
+.seis-updated .dot.off{background:var(--linea-fuerte)}
+
 .offline-note{display:flex;align-items:center;gap:10px;padding:20px 24px 6px;color:var(--texto-apoyo)}
 .offline-note span{font-size:14px;font-weight:600}
 
