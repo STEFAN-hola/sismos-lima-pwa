@@ -264,4 +264,20 @@ svg.ic{display:block}
 .dir-row.shelter .di small{color:var(--verde-oscuro)}
 .dir-row.shelter .dir-act{background:var(--verde-seguro)}
 
+/* ---------- formularios / admin (Fase 2) ---------- */
+.admin-link{display:block;margin:0 24px 20px;width:calc(100% - 48px);font-size:14px;font-weight:700;color:var(--azul-confianza);text-decoration:underline;padding:6px}
+.form{display:flex;flex-direction:column;gap:12px;padding:16px 24px}
+.flabel{font-size:14px;font-weight:700;color:var(--texto-apoyo)}
+.finput{height:54px;border-radius:14px;border:2px solid var(--linea);padding:0 16px;font-size:17px;font-weight:600;font-family:inherit;color:var(--tinta);background:var(--superficie);width:100%}
+.finput:focus{outline:none;border-color:var(--azul-confianza)}
+.fmsg{font-size:14px;font-weight:700;color:var(--rojo-oscuro);background:#FDECEF;border-radius:12px;padding:10px 12px}
+.fhint{font-size:14px;font-weight:600;color:var(--texto-apoyo);margin:4px 0 0;line-height:1.35}
+.admin-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid var(--linea);border-radius:14px;margin-bottom:10px;background:var(--superficie)}
+.admin-row .di{flex:1;min-width:0}
+.admin-row .di b{display:block;font-size:16px;font-weight:700;color:var(--tinta)}
+.admin-row .di small{font-size:13px;font-weight:600;color:var(--texto-apoyo)}
+.admin-del{flex:none;font-size:13px;font-weight:800;color:var(--rojo-oscuro);background:#FDECEF;border-radius:10px;padding:8px 12px}
+.admin-local{flex:none;font-size:12px;font-weight:700;color:var(--texto-apoyo)}
+.admin-add{display:flex;flex-direction:column;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--linea)}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

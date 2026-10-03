@@ -85,7 +85,7 @@ function autoAlertCheck(){
 
 function rerenderIfHome(){ if(state.screen==="home") render(); }
 
-function refreshAll(){ refreshSeismic(); refreshNino(); }
+function refreshAll(){ refreshSeismic(); refreshNino(); refreshBackend(); }
 function startSeismic(){
   if(seismicStarted) return; seismicStarted = true;
   refreshAll();
@@ -267,6 +267,32 @@ function ninoCard(){
   return head + '<div style="padding:0 24px">'+body+'</div>' + upd;
 }
 
+/* ---------------- backend: contenido Supabase + auth admin (Fase 2) ---------------- */
+var CONTENT_CACHE = "sismos_lima_content_v1";
+var backend = { shelters:[], contacts:[], source:"default", fetchedAt:0, online:(navigator.onLine!==false), profile:null, authed:false };
+var login = { step:"email", email:"", msg:"", busy:false };
+var adminMsg = "";
+
+function backendHydrate(){
+  try{ var c=JSON.parse(localStorage.getItem(CONTENT_CACHE)); if(c && c.shelters){ backend.shelters=c.shelters; backend.contacts=c.contacts; backend.fetchedAt=c.savedAt||0; backend.source="cache"; } }catch(e){}
+  backend.authed = !!(window.Backend && Backend.getSession());
+}
+function refreshBackend(){
+  if(!(window.Backend && Backend.configured())) return;
+  if(navigator.onLine===false){ backend.online=false; return; }
+  backend.online=true;
+  Backend.fetchContent(state.distrito).then(function(d){
+    backend.shelters=d.shelters; backend.contacts=d.contacts; backend.source="backend"; backend.fetchedAt=Date.now();
+    try{ localStorage.setItem(CONTENT_CACHE, JSON.stringify({savedAt:Date.now(), shelters:d.shelters, contacts:d.contacts})); }catch(e){}
+    if(state.screen==="dir") render();
+  }).catch(function(){ /* conserva cache/default */ });
+  if(Backend.getSession()){
+    Backend.myProfile().then(function(p){ backend.profile=p; backend.authed=true; if(state.screen==="admin") render(); });
+  }
+}
+function dirEmerg(){ return (backend.contacts && backend.contacts.length) ? backend.contacts : EMERG; }
+function dirAlb(){ return (backend.shelters && backend.shelters.length) ? backend.shelters : ALB; }
+
 /* ---------------- screens ---------------- */
 function screenHome(){
   var alert = state.alertActive;
@@ -302,12 +328,14 @@ function screenHome(){
       + '<div class="demo-row"><label>Tengo datos móviles</label><button class="switch'+(state.hasMobileData?' on':'')+'" id="toggleData" aria-label="datos móviles"><span class="knob"></span></button></div>'
       + '<button class="demo-reset" id="reset">Reiniciar todo el progreso</button>'
     + '</div>'
+    + '<button class="admin-link" id="adminLink">Acceso administrador</button>'
   + '</div>';
 
   s.querySelectorAll("[data-nav]").forEach(function(b){ b.addEventListener("click",function(){ set({screen:b.getAttribute("data-nav")}); }); });
   s.querySelector("#simular").addEventListener("click",function(){ triggerAlert(); });
   s.querySelector("#toggleData").addEventListener("click",function(){ set({hasMobileData:!state.hasMobileData}); });
   s.querySelector("#reset").addEventListener("click",function(){ state=Object.assign({},defaults); save(); render(); });
+  s.querySelector("#adminLink").addEventListener("click",function(){ set({screen: (window.Backend && Backend.getSession()) ? "admin" : "login"}); });
   return s;
 }
 function tile(nav,color,ic,label){
@@ -435,13 +463,13 @@ function screenDir(){
   var s = el('<div class="screen"></div>');
   var rows;
   if(tab==="emerg"){
-    rows = EMERG.map(function(e){
+    rows = dirEmerg().map(function(e){
       return '<div class="dir-row'+(e.critical?' critical':'')+'">'
         + '<div class="di"><b>'+esc(e.name)+'</b><small>'+esc(e.meta)+'</small></div>'
         + '<a class="dir-act" href="tel:'+esc(e.tel)+'" aria-label="Llamar a '+esc(e.name)+'">'+icon("phone",26,2.3)+'</a></div>';
     }).join("");
   }else{
-    rows = ALB.map(function(a){
+    rows = dirAlb().map(function(a){
       return '<div class="dir-row shelter">'
         + '<div class="di"><b>'+esc(a.name)+'</b><small>'+esc(a.meta)+'</small></div>'
         + '<button class="dir-act" aria-label="Ubicar '+esc(a.name)+'">'+icon("pin",26,2.3)+'</button></div>';
@@ -492,6 +520,123 @@ function screenNino(){
   return s;
 }
 
+function screenLogin(){
+  var s = el('<div class="screen"></div>');
+  var body;
+  if(!(window.Backend && Backend.configured())){
+    body = '<div class="list"><div class="seis-card"><div class="seis-main">Backend no configurado.</div></div></div>';
+  } else if(login.step==="email"){
+    body = '<div class="form">'
+      + '<label class="flabel">Correo del administrador</label>'
+      + '<input class="finput" type="email" id="email" inputmode="email" autocomplete="email" placeholder="admin@ejemplo.com" value="'+esc(login.email)+'">'
+      + '<button class="btn-primary" id="sendBtn"'+(login.busy?' disabled':'')+'>'+(login.busy?'Enviando…':'Enviar código')+'</button>'
+      + (login.msg?'<div class="fmsg">'+esc(login.msg)+'</div>':'')
+      + '<p class="fhint">Te llega un código de 6 dígitos al correo. El ciudadano no necesita cuenta.</p>'
+      + '</div>';
+  } else {
+    body = '<div class="form">'
+      + '<label class="flabel">Código enviado a '+esc(login.email)+'</label>'
+      + '<input class="finput" type="text" id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="8">'
+      + '<button class="btn-primary" id="verifyBtn"'+(login.busy?' disabled':'')+'>'+(login.busy?'Verificando…':'Verificar y entrar')+'</button>'
+      + (login.msg?'<div class="fmsg">'+esc(login.msg)+'</div>':'')
+      + '<button class="demo-reset" id="backEmail">Cambiar correo</button>'
+      + '</div>';
+  }
+  s.innerHTML = statusBar(false)
+    + '<div class="head-row"><button class="back blue" data-back>'+icon("chevron",22,2.6)+'</button><h1>Acceso administrador</h1></div>'
+    + '<div class="scroll">'+body+'</div>';
+  bindBack(s);
+  if(login.step==="email"){
+    var sb=s.querySelector("#sendBtn");
+    if(sb) sb.addEventListener("click",function(){
+      var em=(s.querySelector("#email").value||"").trim();
+      if(!em){ login.msg="Escribe tu correo."; render(); return; }
+      login.email=em; login.busy=true; login.msg=""; render();
+      Backend.sendOtp(em).then(function(){ login.busy=false; login.step="code"; login.msg=""; render(); })
+        .catch(function(e){ login.busy=false; login.msg="No se pudo enviar: "+(e.message||"error"); render(); });
+    });
+  } else {
+    var vb=s.querySelector("#verifyBtn");
+    if(vb) vb.addEventListener("click",function(){
+      var code=(s.querySelector("#code").value||"").trim();
+      if(!code){ login.msg="Escribe el código."; render(); return; }
+      login.busy=true; login.msg=""; render();
+      Backend.verifyOtp(login.email, code).then(function(){ login.busy=false; backend.authed=true; return Backend.myProfile(); })
+        .then(function(p){ backend.profile=p; login.step="email"; login.msg=""; set({screen:"admin"}); })
+        .catch(function(){ login.busy=false; login.msg="Código inválido o expirado."; render(); });
+    });
+    var be=s.querySelector("#backEmail");
+    if(be) be.addEventListener("click",function(){ login.step="email"; login.msg=""; render(); });
+  }
+  return s;
+}
+
+function screenAdmin(){
+  var s = el('<div class="screen"></div>');
+  if(!(window.Backend && Backend.getSession())){
+    setTimeout(function(){ set({screen:"login"}); }, 0);
+    s.innerHTML = statusBar(false)
+      + '<div class="head-row"><button class="back blue" data-back>'+icon("chevron",22,2.6)+'</button><h1>Administrador</h1></div>'
+      + '<div class="scroll"><div class="list"><div class="seis-card"><div class="seis-main">Redirigiendo al inicio de sesión…</div></div></div></div>';
+    bindBack(s); return s;
+  }
+  var p = backend.profile;
+  var isAdmin = p && p.role==="admin";
+  var who = '<div class="ok-sub">'+esc(Backend.myEmail()||"")+' · rol: <b>'+esc((p&&p.role)||"ciudadano")+'</b>'+((p&&p.district)?(' · '+esc(p.district)):'')+'</div>';
+  var body;
+  if(!isAdmin){
+    body = '<div class="list">'
+      + '<div class="nino-ok" style="background:var(--ambar-fondo);color:var(--ambar-texto)">'+icon("clock",28,2.4)+'<div><b>Tu cuenta aún no es administrador</b><small>Pide al responsable que te asigne el rol en Supabase.</small></div></div>'
+      + '<div class="seis-card" style="display:block"><div class="seis-main" style="word-break:break-all">Tu user id (para asignar el rol):<br><b>'+esc(Backend.myUserId()||"")+'</b></div></div>'
+      + '<button class="demo-reset" id="signout" style="margin-top:14px">Cerrar sesión</button>'
+      + '</div>';
+  } else {
+    var rows = dirEmerg().map(function(c){
+      return '<div class="admin-row"><div class="di"><b>'+esc(c.name)+'</b><small>'+esc(c.tel||"")+(c.meta?(" · "+esc(c.meta)):"")+'</small></div>'
+        + (c.id ? ('<button class="admin-del" data-del="'+esc(c.id)+'">Borrar</button>') : '<span class="admin-local">local</span>')+'</div>';
+    }).join("");
+    body = '<div class="list">'
+      + '<div class="eyebrow" style="padding:4px 0 8px">Contactos de emergencia · '+esc(p.district)+'</div>'
+      + rows
+      + '<div class="admin-add">'
+        + '<input class="finput" id="nName" placeholder="Nombre (ej. Comisaría San Isidro)">'
+        + '<input class="finput" id="nPhone" placeholder="Teléfono (ej. 105)">'
+        + '<input class="finput" id="nMeta" placeholder="Detalle (ej. 24 horas)">'
+        + '<button class="btn-primary" id="addBtn">Agregar contacto</button>'
+      + '</div>'
+      + (adminMsg?'<div class="fmsg">'+esc(adminMsg)+'</div>':'')
+      + '<button class="demo-reset" id="signout" style="margin-top:14px">Cerrar sesión</button>'
+      + '</div>';
+  }
+  s.innerHTML = statusBar(false)
+    + '<div class="head-row"><button class="back blue" data-back>'+icon("chevron",22,2.6)+'</button><h1>Administrador</h1></div>'
+    + who + '<div class="scroll">'+body+'</div>';
+  bindBack(s);
+  var so=s.querySelector("#signout");
+  if(so) so.addEventListener("click",function(){ Backend.signOut(); backend.authed=false; backend.profile=null; set({screen:"home"}); });
+  if(isAdmin){
+    s.querySelectorAll("[data-del]").forEach(function(b){ b.addEventListener("click",function(){
+      var id=b.getAttribute("data-del"); adminMsg="";
+      Backend.deleteContact(id).then(function(){ return Backend.fetchContent(state.distrito); })
+        .then(function(d){ backend.contacts=d.contacts; backend.shelters=d.shelters; render(); })
+        .catch(function(e){ adminMsg="No se pudo borrar: "+(e.message||"error"); render(); });
+    });});
+    var ab=s.querySelector("#addBtn");
+    if(ab) ab.addEventListener("click",function(){
+      var name=(s.querySelector("#nName").value||"").trim();
+      var phone=(s.querySelector("#nPhone").value||"").trim();
+      var meta=(s.querySelector("#nMeta").value||"").trim();
+      if(!name||!phone){ adminMsg="Nombre y teléfono son obligatorios."; render(); return; }
+      adminMsg="";
+      Backend.insertContact({ district:p.district, name:name, phone:phone, meta:meta, scope:"local", critical:false, active:true, sort:100 })
+        .then(function(){ return Backend.fetchContent(state.distrito); })
+        .then(function(d){ backend.contacts=d.contacts; backend.shelters=d.shelters; render(); })
+        .catch(function(e){ adminMsg="No se pudo agregar: "+(e.message||"error"); render(); });
+    });
+  }
+  return s;
+}
+
 function screenAlerta(){
   var s = el('<div class="alerta"></div>');
   var steps = [["1","AGÁCHATE"],["2","CÚBRETE"],["3","SUJÉTATE"]];
@@ -536,6 +681,8 @@ function render(){
     case "ok": view=screenOk(); break;
     case "dir": view=screenDir(); break;
     case "nino": view=screenNino(); break;
+    case "login": view=screenLogin(); break;
+    case "admin": view=screenAdmin(); break;
     case "alerta": view=screenAlerta(); break;
     default: view=screenHome();
   }
@@ -545,5 +692,6 @@ function render(){
 /* ---------------- init ---------------- */
 hydrateSeismicFromCache();
 ninoLoadCache();
+backendHydrate();
 render();
 startSeismic();
