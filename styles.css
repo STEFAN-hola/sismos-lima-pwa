@@ -120,6 +120,25 @@ svg.ic{display:block}
 .seis-updated .dot{width:8px;height:8px;border-radius:50%;flex:none}
 .seis-updated .dot.on{background:var(--verde-seguro)}
 .seis-updated .dot.off{background:var(--linea-fuerte)}
+.seis-tap{width:100%;text-align:left;cursor:pointer}
+.seis-tap:active{transform:scale(.99)}
+
+/* ---------- El Niño / avisos SENAMHI ---------- */
+.nino-item{border:1.5px solid var(--linea);border-radius:18px;padding:14px 16px;margin-bottom:12px;background:var(--superficie)}
+.nino-item.sev-hi{border-color:var(--rojo-wirbi);background:#FEF1F3}
+.nino-item.sev-mid{border-color:#E7A200;background:var(--ambar-fondo)}
+.nino-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px}
+.nino-badge{font-size:13px;font-weight:800;padding:5px 12px;border-radius:999px;white-space:nowrap}
+.nino-badge.lo{background:var(--verde-suave);color:var(--verde-oscuro)}
+.nino-badge.mid{background:#FDEBC8;color:var(--ambar-texto)}
+.nino-badge.hi{background:#FCE4E8;color:var(--rojo-oscuro)}
+.nino-fecha{font-size:13px;font-weight:600;color:var(--texto-apoyo)}
+.nino-desc{font-size:15px;font-weight:600;color:var(--tinta);margin:0 0 10px;line-height:1.35}
+.nino-reco{font-size:14px;font-weight:600;color:var(--azul-oscuro);background:var(--azul-suave);border-radius:12px;padding:10px 12px;line-height:1.35}
+.nino-ok{display:flex;align-items:center;gap:14px;background:var(--verde-suave);border-radius:18px;padding:16px;color:var(--verde-texto);margin-bottom:12px}
+.nino-ok .ic{color:var(--verde-oscuro);flex:none}
+.nino-ok b{display:block;font-size:17px;font-weight:800}
+.nino-ok small{font-size:14px;font-weight:600;color:var(--verde-oscuro)}
 
 .offline-note{display:flex;align-items:center;gap:10px;padding:20px 24px 6px;color:var(--texto-apoyo)}
 .offline-note span{font-size:14px;font-weight:600}

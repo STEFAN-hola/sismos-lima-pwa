@@ -13,8 +13,13 @@ sismos-lima-pwa/
 ├── app.js                     # estado, navegación y las 7 pantallas
 ├── manifest.webmanifest       # metadatos de instalación (nombre, iconos, colores)
 ├── sw.js                      # service worker: caché offline del app shell
+├── seismic.js                 # datos sísmicos reales (USGS)
 ├── icons/                     # iconos PNG (192, 512, maskable, apple-touch)
-└── .github/workflows/         # deploy automático a GitHub Pages
+├── data/
+│   └── senamhi-avisos.json    # avisos de lluvia SENAMHI (generado en cada deploy)
+├── scripts/
+│   └── fetch_senamhi.py       # scraper del WFS de SENAMHI (corre en CI)
+└── .github/workflows/         # deploy + refresco automático (cada 3 h)
 ```
 
 ## Pantallas
@@ -72,6 +77,17 @@ Así el navegador descarta la caché vieja y sirve la versión nueva.
 - **Auto-alerta:** si aparece un sismo de magnitud ≥ 5.0 a ≤ 300 km de Lima dentro de los últimos 15 min, la app dispara automáticamente el takeover de alerta con la magnitud real. Regla conservadora para evitar falsas alarmas; ajústala en `ALERT_RULE` (`app.js`).
 - **Offline:** el último resultado se cachea en `localStorage`; sin conexión se muestra el guardado con su antigüedad.
 - **Importante:** USGS reporta sismos **ya ocurridos** (latencia de minutos); **no es alerta temprana**. La alerta temprana oficial en Perú es el **SASPe del IGP** — integrarla es una fase posterior.
+
+## Fase 2 (en curso) — Riesgo por El Niño (avisos de lluvia de SENAMHI)
+
+SENAMHI **no tiene API REST con CORS**; sus avisos oficiales de lluvia viven en un **GeoServer WFS** de IDESEP (`g_prono_pp_24h:view_aviso24h`) que devuelve GeoJSON sin cabeceras CORS, así que el navegador no puede llamarlo directo. Solución sin hosting extra:
+
+- `scripts/fetch_senamhi.py` corre en **GitHub Actions** (en cada deploy y cada 3 h vía cron), descarga el WFS, marca qué avisos incluyen Lima con *point-in-polygon*, descarta la geometría pesada (~2.3 MB → ~5 KB) y escribe `data/senamhi-avisos.json`.
+- Ese archivo se publica junto a la PWA y se lee **del mismo origen** (sin CORS, cacheable offline).
+- En Inicio aparece la tarjeta "Avisos de lluvia · El Niño (SENAMHI)" y, al tocarla, la pantalla de detalle con nivel, descripción y recomendación de cada aviso que afecta a Lima.
+- El Niño en Lima/costa se traduce sobre todo en **lluvias intensas → huaicos y desbordes**; por eso se usa el aviso de lluvias de 24 h.
+
+> Para cambiar la frecuencia, edita el `cron` en `.github/workflows/deploy-pages.yml`. Para otra ciudad, cambia `LIMA` en `scripts/fetch_senamhi.py`.
 
 ## Límites pendientes (siguientes fases)
 

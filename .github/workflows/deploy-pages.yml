@@ -3,6 +3,8 @@ name: Deploy PWA to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "0 */3 * * *"   # cada 3 horas: refresca avisos SENAMHI
   workflow_dispatch:
 
 permissions:
@@ -22,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Actualizar avisos de lluvia SENAMHI (El Niño)
+        run: python3 scripts/fetch_senamhi.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

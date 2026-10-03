@@ -1,0 +1,72 @@
+{
+    "fetchedAt":  "2026-10-03T16:55:36Z",
+    "source":  "IDESEP SENAMHI WFS g_prono_pp_24h:view_aviso24h (aviso de lluvias 24h)",
+    "total":  7,
+    "limaAfectada":  true,
+    "limaCount":  1,
+    "avisos":  [
+                   {
+                       "gid":  1,
+                       "nivel":  "Nivel 1",
+                       "nivelNum":  1,
+                       "fecha":  "2026-10-02Z",
+                       "descripcion":  "Ante el pronóstico de lluvias es probable la activación de quebradas de magnitud moderada en las zonas identificadas o alrededor de las mismas, con posible afectación de la población bajo la influencia de las quebradas.",
+                       "recomendacion":  "Estar atentos a la información oficial y seguir las instrucciones de las autoridades competentes.",
+                       "afectaLima":  true
+                   },
+                   {
+                       "gid":  2,
+                       "nivel":  "Nivel 2",
+                       "nivelNum":  2,
+                       "fecha":  "2026-10-02Z",
+                       "descripcion":  "Ante el pronóstico de lluvias es probable la activación de quebradas de magnitud moderada en las zonas identificadas o alrededor de las mismas, con posible afectación de la población bajo la influencia de las quebradas.",
+                       "recomendacion":  "Estar atentos a la información oficial y seguir las instrucciones de las autoridades competentes.",
+                       "afectaLima":  false
+                   },
+                   {
+                       "gid":  3,
+                       "nivel":  "Nivel 3",
+                       "nivelNum":  3,
+                       "fecha":  "2026-10-02Z",
+                       "descripcion":  "Ante el pronóstico de lluvias es probable la activación de quebradas de magnitud moderada en las zonas identificadas o alrededor de las mismas, con posible afectación de la población bajo la influencia de las quebradas.",
+                       "recomendacion":  "Estar atentos a la información oficial y seguir las instrucciones de las autoridades competentes.",
+                       "afectaLima":  false
+                   },
+                   {
+                       "gid":  4,
+                       "nivel":  "Nivel 1",
+                       "nivelNum":  1,
+                       "fecha":  "2026-10-02Z",
+                       "descripcion":  "Ante el pronóstico de lluvias es probable la activación de quebradas de magnitud moderada en las zonas identificadas o alrededor de las mismas, con posible afectación de la población bajo la influencia de las quebradas.",
+                       "recomendacion":  "Estar atentos a la información oficial y seguir las instrucciones de las autoridades competentes.",
+                       "afectaLima":  false
+                   },
+                   {
+                       "gid":  5,
+                       "nivel":  "Nivel 3",
+                       "nivelNum":  3,
+                       "fecha":  "2026-10-02Z",
+                       "descripcion":  "Ante el pronóstico de lluvias es probable la activación de quebradas de magnitud moderada en las zonas identificadas o alrededor de las mismas, con posible afectación de la población bajo la influencia de las quebradas.",
+                       "recomendacion":  "Estar atentos a la información oficial y seguir las instrucciones de las autoridades competentes.",
+                       "afectaLima":  false
+                   },
+                   {
+                       "gid":  6,
+                       "nivel":  "Nivel 2",
+                       "nivelNum":  2,
+                       "fecha":  "2026-10-02Z",
+                       "descripcion":  "Ante el pronóstico de lluvias es probable la activación de quebradas de magnitud moderada en las zonas identificadas o alrededor de las mismas, con posible afectación de la población bajo la influencia de las quebradas.",
+                       "recomendacion":  "Estar atentos a la información oficial y seguir las instrucciones de las autoridades competentes.",
+                       "afectaLima":  false
+                   },
+                   {
+                       "gid":  7,
+                       "nivel":  "Nivel 3",
+                       "nivelNum":  3,
+                       "fecha":  "2026-10-02Z",
+                       "descripcion":  "Ante el pronóstico de lluvias es probable la activación de quebradas de magnitud moderada en las zonas identificadas o alrededor de las mismas, con posible afectación de la población bajo la influencia de las quebradas.",
+                       "recomendacion":  "Estar atentos a la información oficial y seguir las instrucciones de las autoridades competentes.",
+                       "afectaLima":  false
+                   }
+               ]
+}

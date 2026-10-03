@@ -85,13 +85,18 @@ function autoAlertCheck(){
 
 function rerenderIfHome(){ if(state.screen==="home") render(); }
 
+function refreshAll(){ refreshSeismic(); refreshNino(); }
 function startSeismic(){
   if(seismicStarted) return; seismicStarted = true;
-  refreshSeismic();
-  setInterval(refreshSeismic, 60000);
-  window.addEventListener("online", function(){ seismic.online=true; refreshSeismic(); });
-  window.addEventListener("offline", function(){ seismic.online=false; seismic.status = seismic.fetchedAt?"cache":"offline"; rerenderIfHome(); });
-  document.addEventListener("visibilitychange", function(){ if(!document.hidden) refreshSeismic(); });
+  refreshAll();
+  setInterval(refreshAll, 60000);
+  window.addEventListener("online", function(){ seismic.online=true; nino.online=true; refreshAll(); });
+  window.addEventListener("offline", function(){
+    seismic.online=false; seismic.status = seismic.fetchedAt?"cache":"offline";
+    nino.online=false; nino.status = nino.data?"cache":"offline";
+    rerenderIfHome();
+  });
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden) refreshAll(); });
 }
 
 function seismicCard(){
@@ -202,6 +207,66 @@ function statusBar(onRed){
     + '<span class="sb-batt"><span></span></span></span></div>';
 }
 
+/* ---------------- El Niño / avisos de lluvia SENAMHI (Fase 2, WFS -> JSON) ---------------- */
+var NINO_URL = "./data/senamhi-avisos.json";
+var NINO_CACHE = "sismos_lima_nino_v1";
+var nino = { status:"loading", fetchedAt:0, online:(navigator.onLine!==false), data:null };
+
+function ninoLoadCache(){
+  try{ var c = JSON.parse(localStorage.getItem(NINO_CACHE)); if(c && c.data){ nino.data=c.data; nino.fetchedAt=c.savedAt||0; nino.status="cache"; } }catch(e){}
+}
+function refreshNino(){
+  if(navigator.onLine===false){ nino.online=false; nino.status = nino.data?"cache":"offline"; rerenderIfHome(); return; }
+  nino.online = true;
+  fetch(NINO_URL, {cache:"no-store"}).then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(d){
+      nino.data=d; nino.fetchedAt=Date.now(); nino.status="ok";
+      try{ localStorage.setItem(NINO_CACHE, JSON.stringify({savedAt:Date.now(), data:d})); }catch(e){}
+      rerenderIfHome();
+    })
+    .catch(function(){ nino.online=false; nino.status = nino.data?"cache":"error"; rerenderIfHome(); });
+}
+function ninoSeverity(num){ return num>=3 ? "hi" : (num>=2 ? "mid" : "lo"); }
+function ninoMax(){
+  if(!nino.data || !nino.data.avisos) return null;
+  var lim = nino.data.avisos.filter(function(a){ return a.afectaLima; });
+  if(!lim.length) return null;
+  return lim.reduce(function(m,a){ return (!m || a.nivelNum>m.nivelNum) ? a : m; }, null);
+}
+function ninoCard(){
+  var head = '<div class="eyebrow" style="padding:18px 24px 10px">Avisos de lluvia · El Niño (SENAMHI)</div>';
+  var body;
+  if(nino.status==="loading" && !nino.data){
+    body = '<div class="seis-card"><div class="seis-main">Consultando avisos de SENAMHI…</div></div>';
+  } else if(!nino.data){
+    var msg = (!nino.online || nino.status==="error" || nino.status==="offline")
+      ? "Sin conexión. Se actualizará con internet." : "Avisos no disponibles por ahora.";
+    body = '<div class="seis-card"><div class="seis-main">'+msg+'</div></div>';
+  } else {
+    var mx = ninoMax();
+    if(mx){
+      var sev = ninoSeverity(mx.nivelNum);
+      body = '<button class="seis-card seis-tap" data-nav="nino">'
+        + '<div class="seis-mag '+sev+'">N'+mx.nivelNum+'</div>'
+        + '<div class="seis-info"><b>Aviso de lluvias en tu zona</b>'
+          + '<small>'+esc(mx.nivel)+' · '+esc(mx.fecha)+' · toca para ver qué hacer</small></div>'
+        + '</button>';
+    } else {
+      body = '<button class="seis-card seis-tap" data-nav="nino">'
+        + '<div class="seis-mag lo">OK</div>'
+        + '<div class="seis-info"><b>Sin avisos de lluvia para Lima</b>'
+          + '<small>'+(nino.data.total||0)+' activos en el país · toca para ver</small></div>'
+        + '</button>';
+    }
+  }
+  var upd = nino.data
+    ? '<div class="seis-updated"><span class="dot '+(nino.online?'on':'off')+'"></span>'
+      + (nino.online?('Actualizado '+Seismic.timeAgo(nino.fetchedAt)):('Sin conexión · datos de '+Seismic.timeAgo(nino.fetchedAt)))
+      + ' · fuente SENAMHI</div>'
+    : '';
+  return head + '<div style="padding:0 24px">'+body+'</div>' + upd;
+}
+
 /* ---------------- screens ---------------- */
 function screenHome(){
   var alert = state.alertActive;
@@ -222,6 +287,7 @@ function screenHome(){
       + '<div class="prep-track"><div class="prep-fill" style="width:'+pct+'%"></div></div>'
     + '</div>'
     + seismicCard()
+    + ninoCard()
     + '<div class="eyebrow" style="padding:20px 24px 12px">Qué quieres hacer</div>'
     + '<div class="grid2">'
       + tile("casa","blue","home","Revisar<br>mi casa")
@@ -393,6 +459,39 @@ function screenDir(){
   return s;
 }
 
+function ninoItem(a){
+  var sev = ninoSeverity(a.nivelNum);
+  return '<div class="nino-item sev-'+sev+'">'
+    + '<div class="nino-top"><span class="nino-badge '+sev+'">'+esc(a.nivel)+'</span><span class="nino-fecha">'+esc(a.fecha)+'</span></div>'
+    + '<p class="nino-desc">'+esc(a.descripcion)+'</p>'
+    + '<div class="nino-reco"><b>Qué hacer: </b>'+esc(a.recomendacion)+'</div>'
+    + '</div>';
+}
+function screenNino(){
+  var s = el('<div class="screen"></div>');
+  var d = nino.data;
+  var content;
+  if(!d){
+    content = '<div class="list"><div class="seis-card"><div class="seis-main">'
+      + (nino.online?"Cargando avisos…":"Sin conexión. No hay datos guardados aún.")+'</div></div></div>';
+  } else {
+    var lim = d.avisos.filter(function(a){ return a.afectaLima; }).sort(function(a,b){ return b.nivelNum-a.nivelNum; });
+    var otros = d.avisos.filter(function(a){ return !a.afectaLima; }).length;
+    var blocks = lim.length
+      ? lim.map(function(a){ return ninoItem(a); }).join("")
+      : '<div class="nino-ok">'+icon("shield-check",30,2.4)+'<div><b>Sin avisos de lluvia para Lima</b><small>No hay alertas de lluvia que incluyan tu zona ahora.</small></div></div>';
+    var foot = '<div class="foot-note" style="margin:6px 24px 22px">'+otros+' aviso(s) activos en otras zonas del país · fuente SENAMHI · '
+      + (nino.online?('actualizado '+Seismic.timeAgo(nino.fetchedAt)):('sin conexión, datos de '+Seismic.timeAgo(nino.fetchedAt)))+'</div>';
+    content = '<div class="list">'+blocks+'</div>'+foot;
+  }
+  s.innerHTML = statusBar(false)
+  + '<div class="head-row"><button class="back blue" data-back>'+icon("chevron",22,2.6)+'</button><h1>Avisos de lluvia</h1></div>'
+  + '<div class="ok-sub">El Niño trae lluvias intensas → huaicos y desbordes. Fuente oficial: SENAMHI.</div>'
+  + '<div class="scroll">'+content+'</div>';
+  bindBack(s);
+  return s;
+}
+
 function screenAlerta(){
   var s = el('<div class="alerta"></div>');
   var steps = [["1","AGÁCHATE"],["2","CÚBRETE"],["3","SUJÉTATE"]];
@@ -436,6 +535,7 @@ function render(){
     case "ruta": view=screenRuta(); break;
     case "ok": view=screenOk(); break;
     case "dir": view=screenDir(); break;
+    case "nino": view=screenNino(); break;
     case "alerta": view=screenAlerta(); break;
     default: view=screenHome();
   }
@@ -444,5 +544,6 @@ function render(){
 
 /* ---------------- init ---------------- */
 hydrateSeismicFromCache();
+ninoLoadCache();
 render();
 startSeismic();
