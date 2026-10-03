@@ -42,11 +42,13 @@ var Backend = (function () {
     var d = encodeURIComponent(district);
     return Promise.all([
       rest("/rest/v1/shelters?select=id,name,meta,sort&active=eq.true&district=eq."+d+"&order=sort"),
-      rest("/rest/v1/emergency_contacts?select=id,name,phone,meta,critical,scope,sort&active=eq.true&district=eq."+d+"&order=sort")
+      rest("/rest/v1/emergency_contacts?select=id,name,phone,meta,critical,scope,sort&active=eq.true&district=eq."+d+"&order=sort"),
+      rest("/rest/v1/evacuation_points?select=id,name,lat,lon,instructions&active=eq.true&district=eq."+d)
     ]).then(function(res){
       return {
         shelters: (res[0]||[]).map(function(s){ return { id:s.id, name:s.name, meta:s.meta }; }),
-        contacts: (res[1]||[]).map(function(c){ return { id:c.id, name:c.name, tel:c.phone, meta:c.meta, critical:!!c.critical, scope:c.scope }; })
+        contacts: (res[1]||[]).map(function(c){ return { id:c.id, name:c.name, tel:c.phone, meta:c.meta, critical:!!c.critical, scope:c.scope }; }),
+        evac: (res[2]||[]).map(function(e){ return { id:e.id, name:e.name, lat:e.lat, lon:e.lon, instructions:e.instructions }; })
       };
     });
   }

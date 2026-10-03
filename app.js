@@ -269,12 +269,12 @@ function ninoCard(){
 
 /* ---------------- backend: contenido Supabase + auth admin (Fase 2) ---------------- */
 var CONTENT_CACHE = "sismos_lima_content_v1";
-var backend = { shelters:[], contacts:[], source:"default", fetchedAt:0, online:(navigator.onLine!==false), profile:null, authed:false };
+var backend = { shelters:[], contacts:[], evac:[], source:"default", fetchedAt:0, online:(navigator.onLine!==false), profile:null, authed:false };
 var login = { step:"email", email:"", msg:"", busy:false };
 var adminMsg = "";
 
 function backendHydrate(){
-  try{ var c=JSON.parse(localStorage.getItem(CONTENT_CACHE)); if(c && c.shelters){ backend.shelters=c.shelters; backend.contacts=c.contacts; backend.fetchedAt=c.savedAt||0; backend.source="cache"; } }catch(e){}
+  try{ var c=JSON.parse(localStorage.getItem(CONTENT_CACHE)); if(c && c.shelters){ backend.shelters=c.shelters; backend.contacts=c.contacts; backend.evac=c.evac||[]; backend.fetchedAt=c.savedAt||0; backend.source="cache"; } }catch(e){}
   backend.authed = !!(window.Backend && Backend.getSession());
 }
 function refreshBackend(){
@@ -282,8 +282,8 @@ function refreshBackend(){
   if(navigator.onLine===false){ backend.online=false; return; }
   backend.online=true;
   Backend.fetchContent(state.distrito).then(function(d){
-    backend.shelters=d.shelters; backend.contacts=d.contacts; backend.source="backend"; backend.fetchedAt=Date.now();
-    try{ localStorage.setItem(CONTENT_CACHE, JSON.stringify({savedAt:Date.now(), shelters:d.shelters, contacts:d.contacts})); }catch(e){}
+    backend.shelters=d.shelters; backend.contacts=d.contacts; backend.evac=d.evac||[]; backend.source="backend"; backend.fetchedAt=Date.now();
+    try{ localStorage.setItem(CONTENT_CACHE, JSON.stringify({savedAt:Date.now(), shelters:d.shelters, contacts:d.contacts, evac:d.evac||[]})); }catch(e){}
     if(state.screen==="dir") render();
   }).catch(function(){ /* conserva cache/default */ });
   if(Backend.getSession()){
@@ -395,8 +395,72 @@ function screenKit(){
   return s;
 }
 
+/* ---- mapa real (MapLibre + OpenFreeMap), con respaldo esquemático offline ---- */
+var MAPLIBRE_JS = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js";
+var MAPLIBRE_CSS = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css";
+var MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+var routeMap = null;
+var _mlPromise = null;
+function ensureMapLibre(){
+  if(window.maplibregl) return Promise.resolve();
+  if(_mlPromise) return _mlPromise;
+  _mlPromise = new Promise(function(res, rej){
+    var css = document.createElement("link"); css.rel="stylesheet"; css.href=MAPLIBRE_CSS; document.head.appendChild(css);
+    var sc = document.createElement("script"); sc.src=MAPLIBRE_JS;
+    sc.onload=function(){ res(); }; sc.onerror=function(){ _mlPromise=null; rej(new Error("maplibre load failed")); };
+    document.head.appendChild(sc);
+  });
+  return _mlPromise;
+}
+function destroyRouteMap(){ if(routeMap){ try{ routeMap.remove(); }catch(e){} routeMap=null; } }
+function initRouteMap(ev, origin){
+  if(navigator.onLine===false) return;             // offline -> queda el esquemático
+  var container = document.getElementById("routemap");
+  if(!container) return;
+  ensureMapLibre().then(function(){
+    destroyRouteMap();
+    container.hidden = false;
+    var map = new maplibregl.Map({
+      container: container, style: MAP_STYLE,
+      center: [(origin.lon+ev.lon)/2, (origin.lat+ev.lat)/2], zoom: 14
+    });
+    routeMap = map;
+    function setRoute(o){
+      map.getSource("route").setData({type:"Feature", geometry:{type:"LineString", coordinates:[[o.lon,o.lat],[ev.lon,ev.lat]]}});
+      var b = new maplibregl.LngLatBounds([o.lon,o.lat],[o.lon,o.lat]); b.extend([ev.lon,ev.lat]);
+      map.fitBounds(b, {padding:60, maxZoom:16});
+    }
+    map.on("load", function(){
+      map.addSource("route", {type:"geojson", data:{type:"Feature", geometry:{type:"LineString", coordinates:[[origin.lon,origin.lat],[ev.lon,ev.lat]]}}});
+      map.addLayer({id:"route-halo", type:"line", source:"route", paint:{"line-color":"#0E4C7E","line-width":12,"line-opacity":0.22,"line-blur":1}});
+      map.addLayer({id:"route-line", type:"line", source:"route", layout:{"line-cap":"round","line-join":"round"}, paint:{"line-color":"#0E4C7E","line-width":5}});
+      new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([origin.lon,origin.lat]).setPopup(new maplibregl.Popup({offset:18}).setText("Tu ubicación")).addTo(map);
+      new maplibregl.Marker({color:"#0F8A5F"}).setLngLat([ev.lon,ev.lat]).setPopup(new maplibregl.Popup({offset:18}).setText(ev.name)).addTo(map);
+      setRoute(origin);
+      var chip = document.querySelector(".map-chip"); if(chip){ chip.innerHTML = '<span class="dot"></span>Mapa en vivo'; }
+      if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(function(pos){
+          if(routeMap!==map) return;
+          var o = {lon:pos.coords.longitude, lat:pos.coords.latitude};
+          new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([o.lon,o.lat]).addTo(map);
+          setRoute(o);
+        }, function(){}, {timeout:6000, maximumAge:60000});
+      }
+    });
+  }).catch(function(){ /* sin red/lib: queda el esquemático */ });
+}
+function fmtDist(m){ return m<1000 ? (Math.round(m)+" m") : ((m/1000).toFixed(1)+" km"); }
+
 function screenRuta(){
   var s = el('<div class="screen"></div>');
+  var ev = (backend.evac && backend.evac[0]) ? backend.evac[0]
+         : { name:"Parque El Olivar", lat:-12.0975, lon:-77.0364, instructions:"Baja por Av. Los Incas y cruza a la derecha en el parque." };
+  var origin = { lat:-12.1010, lon:-77.0383 };     // San Isidro (referencia; se refina con GPS)
+  var hasLL = (typeof ev.lat==="number" && typeof ev.lon==="number");
+  var meters = hasLL ? Seismic.haversineKm(origin.lat,origin.lon,ev.lat,ev.lon)*1000 : 340;
+  var mins = Math.max(1, Math.round((meters/1000)/5*60));
+  var instr = ev.instructions || "Dirígete al punto seguro más cercano.";
+  var chipText = (navigator.onLine!==false) ? "Cargando mapa…" : "Mapa guardado · sin internet";
   s.innerHTML = statusBar(false)
   + '<div class="scroll" style="display:flex;flex-direction:column">'
     + '<div class="map">'
@@ -405,22 +469,24 @@ function screenRuta(){
         + '<path d="M60 520 L60 300 L172 300 L172 160 L250 160" fill="none" stroke="#0E4C7E" stroke-opacity="0.25" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>'
         + '<path d="M60 520 L60 300 L172 300 L172 160 L250 160" fill="none" stroke="#0E4C7E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 14"/>'
       + '</svg>'
-      + '<div class="map-overlay"><button class="back" data-back>'+icon("chevron",22,2.6)+'</button>'
-        + '<div class="map-chip"><span class="dot"></span>Mapa guardado · sin internet</div></div>'
       + '<div class="user-dot">'+icon("home",22,2.4)+'</div>'
       + '<div class="dest"><div class="pill">Punto seguro</div><div class="pin">'+icon("pin",30,2.4)+'</div></div>'
+      + '<div id="routemap" class="routemap" hidden></div>'
+      + '<div class="map-overlay"><button class="back" data-back>'+icon("chevron",22,2.6)+'</button>'
+        + '<div class="map-chip"><span class="dot"></span>'+chipText+'</div></div>'
     + '</div>'
     + '<div class="sheet">'
       + '<div><div class="eyebrow" style="color:var(--verde-oscuro)">Punto de encuentro más cercano</div>'
-        + '<div class="r-name">Parque El Olivar</div></div>'
-      + '<div class="stats"><div class="stat"><div class="s-l">Distancia</div><div class="s-v">340 m</div></div>'
-        + '<div class="stat"><div class="s-l">A pie</div><div class="s-v">4 min</div></div></div>'
-      + '<div class="instr">'+icon("arrow",22,2.4)+'<span>Baja por Av. Los Incas y cruza a la derecha en el parque.</span></div>'
+        + '<div class="r-name">'+esc(ev.name)+'</div></div>'
+      + '<div class="stats"><div class="stat"><div class="s-l">Distancia</div><div class="s-v">'+fmtDist(meters)+'</div></div>'
+        + '<div class="stat"><div class="s-l">A pie</div><div class="s-v">'+mins+' min</div></div></div>'
+      + '<div class="instr">'+icon("arrow",22,2.4)+'<span>'+esc(instr)+'</span></div>'
       + '<button class="cta-tall" data-nav="dir">Iniciar mi ruta</button>'
     + '</div>'
   + '</div>';
   s.querySelectorAll("[data-nav]").forEach(function(b){ b.addEventListener("click",function(){ set({screen:b.getAttribute("data-nav")}); }); });
   bindBack(s);
+  if(hasLL){ setTimeout(function(){ initRouteMap(ev, origin); }, 0); }
   return s;
 }
 
@@ -672,6 +738,7 @@ function bindBack(s){ s.querySelectorAll("[data-back]").forEach(function(b){ b.a
 
 function render(){
   var device = document.getElementById("device");
+  if(routeMap && state.screen!=="ruta"){ destroyRouteMap(); }
   device.innerHTML = "";
   var view;
   switch(state.screen){
