@@ -395,12 +395,41 @@ function screenKit(){
   return s;
 }
 
-/* ---- mapa real (MapLibre + OpenFreeMap), con respaldo esquemático offline ---- */
+/* ---- mapa real (MapLibre) + rastreo GPS de la zona segura más cercana ---- */
 var MAPLIBRE_JS = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js";
 var MAPLIBRE_CSS = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css";
 var MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
-var routeMap = null;
+var routeMap = null, routeUserMarker = null, routeDestMarker = null, routeCurrentZone = null;
+var userPos = null, geoWatchId = null;
 var _mlPromise = null;
+
+/* Zonas de EJEMPLO para San Isidro — reemplazar por coordenadas verificadas del
+   distrito (el admin las carga en evacuation_points). Solo se usan si la BD no
+   tiene zonas con coordenadas. */
+var EVAC_FALLBACK = [
+  { name:"Parque El Olivar", lat:-12.0975, lon:-77.0364, instructions:"Zona abierta amplia; aléjate de fachadas y postes." },
+  { name:"Parque Roosevelt", lat:-12.0922, lon:-77.0410, instructions:"Ve al centro del parque, lejos de árboles grandes." },
+  { name:"Parque Mariscal Castilla", lat:-12.1007, lon:-77.0306, instructions:"Espacio abierto; mantente lejos de muros." },
+  { name:"Estadio Niño Héroe M. Bonilla", lat:-12.1039, lon:-77.0335, instructions:"Ingresa a la cancha, lejos de graderías." }
+];
+function safeZones(){
+  var out = [];
+  (backend.evac||[]).forEach(function(e){ if(typeof e.lat==="number" && typeof e.lon==="number") out.push({name:e.name,lat:e.lat,lon:e.lon,instructions:e.instructions}); });
+  (backend.shelters||[]).forEach(function(s){ if(typeof s.lat==="number" && typeof s.lon==="number") out.push({name:s.name,lat:s.lat,lon:s.lon,instructions:"Albergue"+(s.meta?(" · "+s.meta):"")}); });
+  return out.length ? out : EVAC_FALLBACK;
+}
+function usingExampleZones(){
+  var n = (backend.evac||[]).filter(function(e){return typeof e.lat==="number";}).length
+        + (backend.shelters||[]).filter(function(s){return typeof s.lat==="number";}).length;
+  return n===0;
+}
+function nearestZone(pos){
+  var zs = safeZones(), best=null, bestM=Infinity;
+  for(var i=0;i<zs.length;i++){ var z=zs[i]; var m=Seismic.haversineKm(pos.lat,pos.lon,z.lat,z.lon)*1000; if(m<bestM){ bestM=m; best=z; } }
+  return { zone: best||zs[0], meters: bestM };
+}
+function fmtDist(m){ return m<1000 ? (Math.round(m)+" m") : ((m/1000).toFixed(1)+" km"); }
+
 function ensureMapLibre(){
   if(window.maplibregl) return Promise.resolve();
   if(_mlPromise) return _mlPromise;
@@ -412,55 +441,83 @@ function ensureMapLibre(){
   });
   return _mlPromise;
 }
-function destroyRouteMap(){ if(routeMap){ try{ routeMap.remove(); }catch(e){} routeMap=null; } }
-function initRouteMap(ev, origin){
+function destroyRouteMap(){ if(routeMap){ try{ routeMap.remove(); }catch(e){} } routeMap=null; routeUserMarker=null; routeDestMarker=null; }
+
+function initRouteMap(zone){
   if(navigator.onLine===false) return;             // offline -> queda el esquemático
   var container = document.getElementById("routemap");
-  if(!container) return;
+  if(!container || !zone) return;
+  var origin = userPos || { lat:zone.lat, lon:zone.lon };
   ensureMapLibre().then(function(){
     destroyRouteMap();
     container.hidden = false;
-    var map = new maplibregl.Map({
-      container: container, style: MAP_STYLE,
-      center: [(origin.lon+ev.lon)/2, (origin.lat+ev.lat)/2], zoom: 14
-    });
-    routeMap = map;
-    function setRoute(o){
-      map.getSource("route").setData({type:"Feature", geometry:{type:"LineString", coordinates:[[o.lon,o.lat],[ev.lon,ev.lat]]}});
-      var b = new maplibregl.LngLatBounds([o.lon,o.lat],[o.lon,o.lat]); b.extend([ev.lon,ev.lat]);
-      map.fitBounds(b, {padding:60, maxZoom:16});
-    }
+    var map = new maplibregl.Map({ container: container, style: MAP_STYLE, center: [zone.lon, zone.lat], zoom: 15 });
+    routeMap = map; routeCurrentZone = zone;
     map.on("load", function(){
-      map.addSource("route", {type:"geojson", data:{type:"Feature", geometry:{type:"LineString", coordinates:[[origin.lon,origin.lat],[ev.lon,ev.lat]]}}});
+      map.addSource("route", {type:"geojson", data:{type:"Feature", geometry:{type:"LineString", coordinates:[[origin.lon,origin.lat],[zone.lon,zone.lat]]}}});
       map.addLayer({id:"route-halo", type:"line", source:"route", paint:{"line-color":"#0E4C7E","line-width":12,"line-opacity":0.22,"line-blur":1}});
       map.addLayer({id:"route-line", type:"line", source:"route", layout:{"line-cap":"round","line-join":"round"}, paint:{"line-color":"#0E4C7E","line-width":5}});
-      new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([origin.lon,origin.lat]).setPopup(new maplibregl.Popup({offset:18}).setText("Tu ubicación")).addTo(map);
-      new maplibregl.Marker({color:"#0F8A5F"}).setLngLat([ev.lon,ev.lat]).setPopup(new maplibregl.Popup({offset:18}).setText(ev.name)).addTo(map);
-      setRoute(origin);
+      routeUserMarker = new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([origin.lon,origin.lat]).setPopup(new maplibregl.Popup({offset:18}).setText("Tu ubicación")).addTo(map);
+      routeDestMarker = new maplibregl.Marker({color:"#0F8A5F"}).setLngLat([zone.lon,zone.lat]).setPopup(new maplibregl.Popup({offset:18}).setText(zone.name)).addTo(map);
+      var b = new maplibregl.LngLatBounds([origin.lon,origin.lat],[origin.lon,origin.lat]); b.extend([zone.lon,zone.lat]);
+      map.fitBounds(b, {padding:60, maxZoom:16});
       var chip = document.querySelector(".map-chip"); if(chip){ chip.innerHTML = '<span class="dot"></span>Mapa en vivo'; }
-      if(navigator.geolocation){
-        navigator.geolocation.getCurrentPosition(function(pos){
-          if(routeMap!==map) return;
-          var o = {lon:pos.coords.longitude, lat:pos.coords.latitude};
-          new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([o.lon,o.lat]).addTo(map);
-          setRoute(o);
-        }, function(){}, {timeout:6000, maximumAge:60000});
-      }
+      if(userPos) updateMapLive(userPos, routeCurrentZone, false);
     });
   }).catch(function(){ /* sin red/lib: queda el esquemático */ });
 }
-function fmtDist(m){ return m<1000 ? (Math.round(m)+" m") : ((m/1000).toFixed(1)+" km"); }
+function updateMapLive(pos, zone, zoneChanged){
+  if(!(routeMap && routeMap.loaded && routeMap.loaded())) return;
+  if(routeUserMarker) routeUserMarker.setLngLat([pos.lon,pos.lat]);
+  if(zoneChanged && routeDestMarker && zone){ routeDestMarker.setLngLat([zone.lon,zone.lat]).setPopup(new maplibregl.Popup({offset:18}).setText(zone.name)); }
+  var src = routeMap.getSource("route"); if(src && zone){ src.setData({type:"Feature", geometry:{type:"LineString", coordinates:[[pos.lon,pos.lat],[zone.lon,zone.lat]]}}); }
+}
+
+function setTrack(msg){ var t=document.getElementById("rz-track"); if(t){ var sp=t.querySelector("span"); if(sp) sp.textContent=msg; } }
+function fillSheet(pos, zone){
+  var nameEl=document.getElementById("rz-name"); if(!nameEl) return;
+  nameEl.textContent = zone ? zone.name : "—";
+  var stepsEl=document.getElementById("rz-steps"), distEl=document.getElementById("rz-dist"), timeEl=document.getElementById("rz-time");
+  var instrEl=document.getElementById("rz-instr");
+  if(pos && zone){
+    var m = Seismic.haversineKm(pos.lat,pos.lon,zone.lat,zone.lon)*1000;
+    if(stepsEl) stepsEl.textContent = "≈"+Math.round(m/0.75);
+    if(distEl) distEl.textContent = fmtDist(m);
+    if(timeEl) timeEl.textContent = Math.max(1,Math.round((m/1000)/5*60))+" min";
+    if(instrEl){ var sp=instrEl.querySelector("span"); if(sp) sp.textContent = zone.instructions || "Dirígete a la zona segura."; }
+  } else {
+    if(stepsEl) stepsEl.textContent = "—";
+    if(distEl) distEl.textContent = "—";
+    if(timeEl) timeEl.textContent = "—";
+  }
+}
+function onPosition(){
+  if(state.screen!=="ruta" || !userPos) return;
+  var n = nearestZone(userPos);
+  var changed = (n.zone !== routeCurrentZone);
+  routeCurrentZone = n.zone;
+  fillSheet(userPos, n.zone);
+  setTrack("Ubicación activa · se actualiza al caminar · solo en tu teléfono");
+  updateMapLive(userPos, n.zone, changed);
+}
+function startTracking(){
+  if(!navigator.geolocation){ setTrack("Tu dispositivo no tiene GPS."); return; }
+  stopTracking();
+  setTrack("Buscando tu ubicación…");
+  geoWatchId = navigator.geolocation.watchPosition(function(p){
+    userPos = { lat:p.coords.latitude, lon:p.coords.longitude };
+    onPosition();
+  }, function(err){
+    setTrack(err && err.code===1 ? "Activa el permiso de ubicación para ver la zona a tus pasos." : "No se pudo obtener tu ubicación.");
+  }, { enableHighAccuracy:true, maximumAge:10000, timeout:15000 });
+}
+function stopTracking(){ if(geoWatchId!=null && navigator.geolocation){ try{ navigator.geolocation.clearWatch(geoWatchId); }catch(e){} geoWatchId=null; } }
 
 function screenRuta(){
   var s = el('<div class="screen"></div>');
-  var ev = (backend.evac && backend.evac[0]) ? backend.evac[0]
-         : { name:"Parque El Olivar", lat:-12.0975, lon:-77.0364, instructions:"Baja por Av. Los Incas y cruza a la derecha en el parque." };
-  var origin = { lat:-12.1010, lon:-77.0383 };     // San Isidro (referencia; se refina con GPS)
-  var hasLL = (typeof ev.lat==="number" && typeof ev.lon==="number");
-  var meters = hasLL ? Seismic.haversineKm(origin.lat,origin.lon,ev.lat,ev.lon)*1000 : 340;
-  var mins = Math.max(1, Math.round((meters/1000)/5*60));
-  var instr = ev.instructions || "Dirígete al punto seguro más cercano.";
   var chipText = (navigator.onLine!==false) ? "Cargando mapa…" : "Mapa guardado · sin internet";
+  var initZone = userPos ? nearestZone(userPos).zone : safeZones()[0];
+  var exampleNote = usingExampleZones() ? '<div class="zone-example">Ubicaciones de ejemplo — el distrito debe cargar las verificadas.</div>' : '';
   s.innerHTML = statusBar(false)
   + '<div class="scroll" style="display:flex;flex-direction:column">'
     + '<div class="map">'
@@ -470,23 +527,31 @@ function screenRuta(){
         + '<path d="M60 520 L60 300 L172 300 L172 160 L250 160" fill="none" stroke="#0E4C7E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 14"/>'
       + '</svg>'
       + '<div class="user-dot">'+icon("home",22,2.4)+'</div>'
-      + '<div class="dest"><div class="pill">Punto seguro</div><div class="pin">'+icon("pin",30,2.4)+'</div></div>'
+      + '<div class="dest"><div class="pill">Zona segura</div><div class="pin">'+icon("pin",30,2.4)+'</div></div>'
       + '<div id="routemap" class="routemap" hidden></div>'
       + '<div class="map-overlay"><button class="back" data-back>'+icon("chevron",22,2.6)+'</button>'
         + '<div class="map-chip"><span class="dot"></span>'+chipText+'</div></div>'
     + '</div>'
     + '<div class="sheet">'
-      + '<div><div class="eyebrow" style="color:var(--verde-oscuro)">Punto de encuentro más cercano</div>'
-        + '<div class="r-name">'+esc(ev.name)+'</div></div>'
-      + '<div class="stats"><div class="stat"><div class="s-l">Distancia</div><div class="s-v">'+fmtDist(meters)+'</div></div>'
-        + '<div class="stat"><div class="s-l">A pie</div><div class="s-v">'+mins+' min</div></div></div>'
-      + '<div class="instr">'+icon("arrow",22,2.4)+'<span>'+esc(instr)+'</span></div>'
-      + '<button class="cta-tall" data-nav="dir">Iniciar mi ruta</button>'
+      + '<div><div class="eyebrow" style="color:var(--verde-oscuro)">Zona segura más cercana</div>'
+        + '<div class="r-name" id="rz-name">'+esc(initZone?initZone.name:"—")+'</div></div>'
+      + exampleNote
+      + '<div class="stats">'
+        + '<div class="stat"><div class="s-l">A unos pasos</div><div class="s-v" id="rz-steps">—</div></div>'
+        + '<div class="stat"><div class="s-l">Distancia</div><div class="s-v" id="rz-dist">—</div></div>'
+        + '<div class="stat"><div class="s-l">A pie</div><div class="s-v" id="rz-time">—</div></div>'
+      + '</div>'
+      + '<div class="instr" id="rz-instr">'+icon("arrow",22,2.4)+'<span>'+esc(initZone&&initZone.instructions?initZone.instructions:"Activa la ubicación para ver la zona más cercana a tus pasos.")+'</span></div>'
+      + '<div class="track-note" id="rz-track">'+icon("pin",16,2.4)+'<span>Buscando tu ubicación…</span></div>'
+      + '<button class="cta-tall" data-nav="dir">Ver directorio</button>'
     + '</div>'
   + '</div>';
   s.querySelectorAll("[data-nav]").forEach(function(b){ b.addEventListener("click",function(){ set({screen:b.getAttribute("data-nav")}); }); });
   bindBack(s);
-  if(hasLL){ setTimeout(function(){ initRouteMap(ev, origin); }, 0); }
+  routeCurrentZone = initZone;
+  if(userPos){ fillSheet(userPos, nearestZone(userPos).zone); }
+  if(navigator.onLine!==false && initZone){ setTimeout(function(){ initRouteMap(routeCurrentZone); }, 0); }
+  setTimeout(startTracking, 0);
   return s;
 }
 
@@ -738,7 +803,7 @@ function bindBack(s){ s.querySelectorAll("[data-back]").forEach(function(b){ b.a
 
 function render(){
   var device = document.getElementById("device");
-  if(routeMap && state.screen!=="ruta"){ destroyRouteMap(); }
+  if(state.screen!=="ruta"){ if(routeMap) destroyRouteMap(); stopTracking(); }
   device.innerHTML = "";
   var view;
   switch(state.screen){
