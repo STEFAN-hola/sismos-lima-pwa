@@ -295,6 +295,7 @@ var CONTENT_CACHE = "sismos_lima_content_v1";
 var backend = { shelters:[], contacts:[], evac:[], source:"default", fetchedAt:0, online:(navigator.onLine!==false), profile:null, authed:false };
 var login = { step:"email", email:"", msg:"", busy:false };
 var adminMsg = "";
+var riskMsg = "";
 
 function backendHydrate(){
   try{ var c=JSON.parse(localStorage.getItem(CONTENT_CACHE)); if(c && c.shelters){ backend.shelters=c.shelters; backend.contacts=c.contacts; backend.evac=c.evac||[]; backend.fetchedAt=c.savedAt||0; backend.source="cache"; } }catch(e){}
@@ -382,6 +383,20 @@ function saveRegPoint(){
 }
 
 /* ---------------- screens ---------------- */
+function acctBar(){
+  var logged = !!(window.Backend && Backend.getSession());
+  if(!logged){
+    return '<button class="acct-login" id="acctLogin">Iniciar sesión / crear cuenta</button>';
+  }
+  var email = (window.Backend && Backend.myEmail && Backend.myEmail()) || "";
+  var isAdmin = backend.profile && backend.profile.role==="admin";
+  return '<div class="acct-bar">'
+    + '<div class="acct-who">Sesión iniciada'+(email?('<br><b>'+esc(email)+'</b>'):'')+'</div>'
+    + '<div class="acct-actions">'
+      + (isAdmin ? '<button class="acct-admin" id="acctAdmin">Panel admin</button>' : '')
+      + '<button class="acct-out" id="acctOut">Salir</button>'
+    + '</div></div>';
+}
 function screenHome(){
   var alert = state.alertActive;
   var pct = prepPct();
@@ -392,6 +407,7 @@ function screenHome(){
       + '<div><div class="dist-label">Tu distrito</div><div class="dist">'+esc(state.distrito)+'</div></div>'
       + '<div class="chip-off"><span class="dot"></span><span>Sin datos: OK</span></div>'
     + '</div>'
+    + acctBar()
     + '<div class="status-card'+(alert?' alert':'')+'">'
       + '<div class="sc-circle">'+icon(alert?"alert":"shield-check",30,2.4)+'</div>'
       + '<h2>'+(alert?"Alerta activa":"Todo normal")+'</h2>'
@@ -416,14 +432,15 @@ function screenHome(){
       + '<div class="demo-row"><label>Tengo datos móviles</label><button class="switch'+(state.hasMobileData?' on':'')+'" id="toggleData" aria-label="datos móviles"><span class="knob"></span></button></div>'
       + '<button class="demo-reset" id="reset">Reiniciar todo el progreso</button>'
     + '</div>'
-    + '<button class="admin-link" id="adminLink">Acceso administrador</button>'
   + '</div>';
 
   s.querySelectorAll("[data-nav]").forEach(function(b){ b.addEventListener("click",function(){ set({screen:b.getAttribute("data-nav")}); }); });
   s.querySelector("#simular").addEventListener("click",function(){ triggerAlert(); });
   s.querySelector("#toggleData").addEventListener("click",function(){ set({hasMobileData:!state.hasMobileData}); });
   s.querySelector("#reset").addEventListener("click",function(){ state=Object.assign({},defaults); save(); render(); });
-  s.querySelector("#adminLink").addEventListener("click",function(){ if(window.Backend && Backend.getSession()){ set({screen:"admin"}); } else { login.returnTo="admin"; set({screen:"login"}); } });
+  var al=s.querySelector("#acctLogin"); if(al) al.addEventListener("click",function(){ login.returnTo="home"; set({screen:"login"}); });
+  var aa=s.querySelector("#acctAdmin"); if(aa) aa.addEventListener("click",function(){ set({screen:"admin"}); });
+  var ao=s.querySelector("#acctOut"); if(ao) ao.addEventListener("click",function(){ Backend.signOut(); backend.authed=false; backend.profile=null; safePoints=[]; render(); });
   return s;
 }
 function tile(nav,color,ic,label){
@@ -529,37 +546,44 @@ function ensureMapLibre(){
   });
   return _mlPromise;
 }
-function destroyRouteMap(){ if(routeMap){ try{ routeMap.remove(); }catch(e){} } routeMap=null; routeUserMarker=null; routeDestMarker=null; }
+function destroyRouteMap(){
+  if(routeMap){
+    if(window.MapLayers){ try{ MapLayers.clearEvacZones(routeMap); }catch(e){} try{ MapLayers.clearSafePoints(routeMap); }catch(e){} }
+    try{ routeMap.remove(); }catch(e){}
+  }
+  routeMap=null; routeUserMarker=null; routeDestMarker=null;
+}
 
-function initRouteMap(zone){
+function initRouteMap(){
   if(navigator.onLine===false) return;             // offline -> queda el esquemático
   var container = document.getElementById("routemap");
-  if(!container || !zone) return;
-  var origin = userPos || { lat:zone.lat, lon:zone.lon };
+  if(!container) return;
+  var zones = safeZones();
   ensureMapLibre().then(function(){
     destroyRouteMap();
     container.hidden = false;
-    var map = new maplibregl.Map({ container: container, style: MAP_STYLE, center: [zone.lon, zone.lat], zoom: 15 });
-    routeMap = map; routeCurrentZone = zone;
+    var center = userPos || zones[0] || { lat:-12.046, lon:-77.0428 };
+    var map = new maplibregl.Map({ container: container, style: MAP_STYLE, center: [center.lon, center.lat], zoom: 14 });
+    routeMap = map;
     map.on("load", function(){
-      map.addSource("route", {type:"geojson", data:{type:"Feature", geometry:{type:"LineString", coordinates:[[origin.lon,origin.lat],[zone.lon,zone.lat]]}}});
-      map.addLayer({id:"route-halo", type:"line", source:"route", paint:{"line-color":"#0E4C7E","line-width":12,"line-opacity":0.22,"line-blur":1}});
-      map.addLayer({id:"route-line", type:"line", source:"route", layout:{"line-cap":"round","line-join":"round"}, paint:{"line-color":"#0E4C7E","line-width":5}});
-      routeUserMarker = new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([origin.lon,origin.lat]).setPopup(new maplibregl.Popup({offset:18}).setText("Tu ubicación")).addTo(map);
-      routeDestMarker = new maplibregl.Marker({color:"#0F8A5F"}).setLngLat([zone.lon,zone.lat]).setPopup(new maplibregl.Popup({offset:18}).setText(zone.name)).addTo(map);
-      var b = new maplibregl.LngLatBounds([origin.lon,origin.lat],[origin.lon,origin.lat]); b.extend([zone.lon,zone.lat]);
-      map.fitBounds(b, {padding:60, maxZoom:16});
-      var chip = document.querySelector(".map-chip"); if(chip){ chip.innerHTML = '<span class="dot"></span>Mapa en vivo'; }
-      if(userPos) updateMapLive(userPos, routeCurrentZone, false);
+      // marcador de TU ubicación (sin trazar ninguna ruta)
+      if(userPos){ routeUserMarker = new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([userPos.lon,userPos.lat]).setPopup(new maplibregl.Popup({offset:18}).setText("Tu ubicación")).addTo(map); }
+      // marcar las zonas seguras oficiales + puntos personales + capa de riesgo
+      if(window.MapLayers) MapLayers.renderEvacZones(map, zones);
       applyMapLayers(); loadSafePoints(); loadRisk();
+      // encuadrar a las zonas (+ tu ubicación)
+      var b = new maplibregl.LngLatBounds();
+      zones.forEach(function(z){ b.extend([z.lon,z.lat]); });
+      if(userPos) b.extend([userPos.lon,userPos.lat]);
+      try{ if(!b.isEmpty()) map.fitBounds(b, {padding:60, maxZoom:15}); }catch(e){}
+      var chip = document.querySelector(".map-chip"); if(chip){ chip.innerHTML = '<span class="dot"></span>Mapa en vivo'; }
     });
   }).catch(function(){ /* sin red/lib: queda el esquemático */ });
 }
-function updateMapLive(pos, zone, zoneChanged){
+function updateMapLive(pos){
   if(!(routeMap && routeMap.loaded && routeMap.loaded())) return;
-  if(routeUserMarker) routeUserMarker.setLngLat([pos.lon,pos.lat]);
-  if(zoneChanged && routeDestMarker && zone){ routeDestMarker.setLngLat([zone.lon,zone.lat]).setPopup(new maplibregl.Popup({offset:18}).setText(zone.name)); }
-  var src = routeMap.getSource("route"); if(src && zone){ src.setData({type:"Feature", geometry:{type:"LineString", coordinates:[[pos.lon,pos.lat],[zone.lon,zone.lat]]}}); }
+  if(routeUserMarker){ routeUserMarker.setLngLat([pos.lon,pos.lat]); }
+  else { routeUserMarker = new maplibregl.Marker({color:"#0E4C7E"}).setLngLat([pos.lon,pos.lat]).setPopup(new maplibregl.Popup({offset:18}).setText("Tu ubicación")).addTo(routeMap); }
 }
 
 function setTrack(msg){ var t=document.getElementById("rz-track"); if(t){ var sp=t.querySelector("span"); if(sp) sp.textContent=msg; } }
@@ -583,11 +607,10 @@ function fillSheet(pos, zone){
 function onPosition(){
   if(state.screen!=="ruta" || !userPos) return;
   var n = nearestZone(userPos);
-  var changed = (n.zone !== routeCurrentZone);
   routeCurrentZone = n.zone;
   fillSheet(userPos, n.zone);
   setTrack("Ubicación activa · se actualiza al caminar · solo en tu teléfono");
-  updateMapLive(userPos, n.zone, changed);
+  updateMapLive(userPos);
 }
 function startTracking(){
   if(!navigator.geolocation){ setTrack("Tu dispositivo no tiene GPS."); return; }
@@ -611,11 +634,6 @@ function screenRuta(){
   + '<div class="scroll" style="display:flex;flex-direction:column">'
     + '<div class="map">'
       + '<div class="ave-h"></div><div class="ave-v"></div><div class="park"></div>'
-      + '<svg class="route" viewBox="0 0 390 474" preserveAspectRatio="none">'
-        + '<path d="M60 520 L60 300 L172 300 L172 160 L250 160" fill="none" stroke="#0E4C7E" stroke-opacity="0.25" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>'
-        + '<path d="M60 520 L60 300 L172 300 L172 160 L250 160" fill="none" stroke="#0E4C7E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 14"/>'
-      + '</svg>'
-      + '<div class="user-dot">'+icon("home",22,2.4)+'</div>'
       + '<div class="dest"><div class="pill">Zona segura</div><div class="pin">'+icon("pin",30,2.4)+'</div></div>'
       + '<div id="routemap" class="routemap" hidden></div>'
       + '<div class="map-overlay"><button class="back" data-back>'+icon("chevron",22,2.6)+'</button>'
@@ -647,7 +665,7 @@ function screenRuta(){
   var rp=s.querySelector("#regPoint"); if(rp) rp.addEventListener("click",function(){ openRegister(); });
   routeCurrentZone = initZone;
   if(userPos){ fillSheet(userPos, nearestZone(userPos).zone); }
-  if(navigator.onLine!==false && initZone){ setTimeout(function(){ initRouteMap(routeCurrentZone); }, 0); }
+  if(navigator.onLine!==false){ setTimeout(initRouteMap, 0); }
   setTimeout(startTracking, 0);
   return s;
 }
@@ -873,6 +891,11 @@ function screenAdmin(){
         + '<button class="btn-primary" id="addBtn">Agregar contacto</button>'
       + '</div>'
       + (adminMsg?'<div class="fmsg">'+esc(adminMsg)+'</div>':'')
+      + '<div class="eyebrow" style="padding:18px 0 8px">Capa de riesgo (SIGRID / INGEMMET)</div>'
+      + '<textarea class="finput risk-geo" id="riskGeo" placeholder="Pega aquí el GeoJSON (FeatureCollection) exportado de SIGRID/INGEMMET"></textarea>'
+      + '<div class="risk-actions"><button class="btn-primary" id="riskLoad">Cargar capa</button><button class="demo-reset" id="riskClear">Borrar capa</button></div>'
+      + (riskMsg?'<div class="fmsg">'+esc(riskMsg)+'</div>':'')
+      + '<p class="fhint">Exporta la capa oficial a GeoJSON (ver supabase/SETUP_zonas.md) y pégala. Se guarda en risk_zones y se dibuja en el mapa.</p>'
       + '<button class="demo-reset" id="signout" style="margin-top:14px">Cerrar sesión</button>'
       + '</div>';
   }
@@ -901,8 +924,39 @@ function screenAdmin(){
         .then(function(d){ backend.contacts=d.contacts; backend.shelters=d.shelters; render(); })
         .catch(function(e){ adminMsg="No se pudo agregar: "+(e.message||"error"); render(); });
     });
+    var rl=s.querySelector("#riskLoad"); if(rl) rl.addEventListener("click", loadRiskFromText);
+    var rc=s.querySelector("#riskClear"); if(rc) rc.addEventListener("click", clearRiskAll);
   }
   return s;
+}
+
+function featuresFromGeo(g){
+  if(g && g.type==="FeatureCollection") return g.features||[];
+  if(g && g.type==="Feature") return [g];
+  if(Array.isArray(g)) return g;
+  if(g && g.type && g.coordinates) return [{ type:"Feature", geometry:g, properties:{} }];
+  return [];
+}
+function loadRiskFromText(){
+  var ta=document.getElementById("riskGeo"); var txt=ta?(ta.value||"").trim():"";
+  if(!txt){ riskMsg="Pega un GeoJSON primero."; render(); return; }
+  var g; try{ g=JSON.parse(txt); }catch(e){ riskMsg="GeoJSON inválido (no es JSON)."; render(); return; }
+  var feats=featuresFromGeo(g);
+  var rows=feats.map(function(f){ var pr=f.properties||{}; return {
+    name: pr.name||pr.NOMBRE||pr.nombre||null,
+    kind: pr.kind||pr.tipo||pr.TIPO||pr.peligro||null,
+    severity: pr.severity||pr.nivel||pr.NIVEL||pr.grado||null,
+    geometry: f.geometry||null, properties: pr, source: "carga manual"
+  }; }).filter(function(r){ return r.geometry; });
+  if(!rows.length){ riskMsg="No se encontraron geometrías en el GeoJSON."; render(); return; }
+  riskMsg="Cargando "+rows.length+" zonas…"; render();
+  Backend.insertRiskZones(rows).then(function(){ riskMsg="Cargadas "+rows.length+" zonas de riesgo."; loadRisk(); render(); })
+    .catch(function(e){ riskMsg="No se pudo cargar: "+(e.message||"error"); render(); });
+}
+function clearRiskAll(){
+  riskMsg="Borrando…"; render();
+  Backend.clearRiskZones().then(function(){ riskGeoJSON={type:"FeatureCollection",features:[]}; applyMapLayers(); riskMsg="Capa de riesgo borrada."; render(); })
+    .catch(function(e){ riskMsg="No se pudo borrar: "+(e.message||"error"); render(); });
 }
 
 function screenAlerta(){

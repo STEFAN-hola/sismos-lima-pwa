@@ -79,5 +79,26 @@ var MapLayers = (function () {
     return { type:"FeatureCollection", features:[] };
   }
 
-  return { renderSafePoints: renderSafePoints, clearSafePoints: clearSafePoints, renderRiskLayer: renderRiskLayer, removeRisk: removeRisk };
+  // Zonas seguras oficiales (evacuation_points): marcador verde estándar, distinto
+  // a los puntos personales (pin cuadrado) y al riesgo (polígonos).
+  function clearEvacZones(map){
+    if(map._ezMarkers){ map._ezMarkers.forEach(function(m){ try{ m.remove(); }catch(e){} }); }
+    map._ezMarkers = [];
+  }
+  function renderEvacZones(map, zones){
+    if(!map || !window.maplibregl) return;
+    clearEvacZones(map);
+    (zones || []).forEach(function(z){
+      if(typeof z.lat !== "number" || typeof z.lon !== "number") return;
+      var popup = new maplibregl.Popup({ offset:18 }).setText("Zona segura: " + (z.name || ""));
+      var m = new maplibregl.Marker({ color:"#0F8A5F" }).setLngLat([z.lon, z.lat]).setPopup(popup).addTo(map);
+      map._ezMarkers.push(m);
+    });
+  }
+
+  return {
+    renderSafePoints: renderSafePoints, clearSafePoints: clearSafePoints,
+    renderRiskLayer: renderRiskLayer, removeRisk: removeRisk,
+    renderEvacZones: renderEvacZones, clearEvacZones: clearEvacZones
+  };
 })();

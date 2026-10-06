@@ -319,5 +319,17 @@ svg.ic{display:block}
 .admin-del{flex:none;font-size:13px;font-weight:800;color:var(--rojo-oscuro);background:#FDECEF;border-radius:10px;padding:8px 12px}
 .admin-local{flex:none;font-size:12px;font-weight:700;color:var(--texto-apoyo)}
 .admin-add{display:flex;flex-direction:column;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--linea)}
+.risk-geo{min-height:90px;resize:vertical;padding:10px 12px;line-height:1.3;font-size:13px}
+.risk-actions{display:flex;gap:10px;align-items:center;margin-top:10px}
+.risk-actions .btn-primary{flex:1}
+
+/* ---------- cuenta en Inicio ---------- */
+.acct-login{display:block;width:calc(100% - 48px);margin:0 24px 6px;height:48px;border-radius:14px;background:var(--azul-confianza);color:#fff;font-size:15px;font-weight:700}
+.acct-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 24px 6px;padding:12px 14px;background:var(--azul-suave);border-radius:16px}
+.acct-who{font-size:13px;font-weight:600;color:var(--azul-oscuro);line-height:1.3;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acct-who b{font-size:14px;font-weight:800}
+.acct-actions{display:flex;gap:8px;flex:none}
+.acct-admin{font-size:13px;font-weight:800;color:#fff;background:var(--azul-confianza);border-radius:10px;padding:8px 12px}
+.acct-out{font-size:13px;font-weight:800;color:var(--azul-confianza);background:#fff;border-radius:10px;padding:8px 12px;border:1.5px solid var(--azul-confianza)}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

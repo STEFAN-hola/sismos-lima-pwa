@@ -117,6 +117,14 @@ var Backend = (function () {
     });
   }
 
+  // ---- capa de riesgo: carga/borrado (admin) ----
+  function insertRiskZones(rows){
+    return rest("/rest/v1/risk_zones", { method:"POST", prefer:"return=representation", body:rows });
+  }
+  function clearRiskZones(){
+    return rest("/rest/v1/risk_zones?id=neq.00000000-0000-0000-0000-000000000000", { method:"DELETE", prefer:"return=representation" });
+  }
+
   // ---- OAuth (Google / Facebook) ----
   function oauthUrl(provider){
     var appUrl = window.location.origin + window.location.pathname;
@@ -144,6 +152,7 @@ var Backend = (function () {
     insertContact: insertContact, updateContact: updateContact, deleteContact: deleteContact,
     listSafePoints: listSafePoints, insertSafePoint: insertSafePoint, deleteSafePoint: deleteSafePoint,
     uploadSafePhoto: uploadSafePhoto, signedPhotoUrl: signedPhotoUrl,
-    fetchRiskZones: fetchRiskZones, oauthUrl: oauthUrl, handleOAuthRedirect: handleOAuthRedirect
+    fetchRiskZones: fetchRiskZones, insertRiskZones: insertRiskZones, clearRiskZones: clearRiskZones,
+    oauthUrl: oauthUrl, handleOAuthRedirect: handleOAuthRedirect
   };
 })();
