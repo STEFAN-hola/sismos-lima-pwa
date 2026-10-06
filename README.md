@@ -70,7 +70,18 @@ var CACHE_VERSION = "sismos-lima-v2"; // v1 -> v2
 
 Así el navegador descarta la caché vieja y sirve la versión nueva.
 
-## Fase 2 (en curso) — Datos sísmicos reales
+## Fase 2 — Sismos del IGP (fuente primaria para Perú)
+
+USGS es un catálogo global y **no lista muchos sismos locales del Perú**. El **IGP**
+(Centro Sismológico Nacional) sí los registra. Su API por año
+(`ultimosismo.igp.gob.pe/api/ultimo-sismo/ajaxb/<año>`) no tiene CORS, así que
+`scripts/fetch_igp.py` corre en **GitHub Actions** (cada 30 min y en cada deploy):
+descarga, normaliza fecha/hora UTC, calcula la distancia a Lima y publica los
+~60 sismos más recientes en `data/igp-sismos.json`. La PWA lo lee del mismo
+origen (sin CORS, cacheable offline). La tarjeta "Actividad sísmica reciente"
+usa **IGP como fuente primaria** y **USGS como respaldo**.
+
+## Fase 2 — Datos sísmicos (USGS, respaldo en vivo)
 
 `seismic.js` consulta la **API pública de USGS** (gratis, sin API key, con CORS) para traer la actividad sísmica cerca de Lima (últimas 24 h, radio 500 km). En Inicio se muestra el último sismo (magnitud, hace cuánto, distancia, profundidad) con estado online/offline y la fuente.
 

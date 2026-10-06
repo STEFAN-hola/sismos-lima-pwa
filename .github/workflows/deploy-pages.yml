@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 */3 * * *"   # cada 3 horas: refresca avisos SENAMHI
+    - cron: "*/30 * * * *"   # cada 30 min: refresca sismos IGP y avisos SENAMHI
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Actualizar avisos de lluvia SENAMHI (El Niño)
         run: python3 scripts/fetch_senamhi.py
+      - name: Actualizar sismos IGP (Centro Sismológico Nacional)
+        run: python3 scripts/fetch_igp.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

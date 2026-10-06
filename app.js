@@ -85,7 +85,7 @@ function autoAlertCheck(){
 
 function rerenderIfHome(){ if(state.screen==="home") render(); }
 
-function refreshAll(){ refreshSeismic(); refreshNino(); refreshBackend(); }
+function refreshAll(){ refreshSeismic(); refreshIgp(); refreshNino(); refreshBackend(); }
 function startSeismic(){
   if(seismicStarted) return; seismicStarted = true;
   refreshAll();
@@ -99,34 +99,57 @@ function startSeismic(){
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) refreshAll(); });
 }
 
+/* ---- IGP (sismos del Perú) — fuente primaria vía proxy en CI; USGS de respaldo ---- */
+var IGP_URL = "./data/igp-sismos.json";
+var IGP_CACHE = "sismos_lima_igp_v1";
+var igp = { status:"loading", fetchedAt:0, online:(navigator.onLine!==false), data:null };
+function igpLoadCache(){ try{ var c=JSON.parse(localStorage.getItem(IGP_CACHE)); if(c && c.data){ igp.data=c.data; igp.fetchedAt=c.savedAt||0; igp.status="cache"; } }catch(e){} }
+function refreshIgp(){
+  if(navigator.onLine===false){ igp.online=false; igp.status=igp.data?"cache":"offline"; rerenderIfHome(); return; }
+  igp.online=true;
+  fetch(IGP_URL, {cache:"no-store"}).then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(d){ igp.data=d; igp.fetchedAt=Date.now(); igp.status="ok";
+      try{ localStorage.setItem(IGP_CACHE, JSON.stringify({savedAt:Date.now(), data:d})); }catch(e){}
+      rerenderIfHome(); })
+    .catch(function(){ igp.online=false; igp.status=igp.data?"cache":"error"; rerenderIfHome(); });
+}
+function latestQuake(){
+  if(igp.data && igp.data.sismos && igp.data.sismos.length){
+    var q=igp.data.sismos[0];
+    return { src:"IGP", mag:q.magNum, place:q.place, time:q.time, distKm:q.distKm, depth:q.depth, fetchedAt:igp.fetchedAt, online:igp.online };
+  }
+  if(seismic.last){
+    var u=seismic.last;
+    return { src:"USGS", mag:u.mag, place:u.place, time:u.time, distKm:u.distKm, depth:u.depth, fetchedAt:seismic.fetchedAt, online:seismic.online };
+  }
+  return null;
+}
 function seismicCard(){
-  var s = seismic;
   var head = '<div class="eyebrow" style="padding:18px 24px 10px">Actividad sísmica reciente</div>';
-  var body;
-  if(s.status==="loading" && !s.last){
-    body = '<div class="seis-card"><div class="seis-main">Buscando sismos cerca de Lima…</div></div>';
-  } else if(!s.last){
-    var msg = (!s.online || s.status==="offline" || s.status==="error")
-      ? "Sin conexión. Se actualizará cuando vuelvas a tener internet."
-      : "Sin sismos registrados cerca de Lima en las últimas 24 h.";
-    body = '<div class="seis-card"><div class="seis-main">'+msg+'</div></div>';
+  var lq = latestQuake();
+  var body, upd = "";
+  if(!lq){
+    var loading = (igp.status==="loading" && !igp.data);
+    if(loading){ body = '<div class="seis-card"><div class="seis-main">Buscando sismos recientes…</div></div>'; }
+    else {
+      var off = (!igp.online && !seismic.online);
+      body = '<div class="seis-card"><div class="seis-main">'+(off?"Sin conexión. Se actualizará con internet.":"Sin sismos recientes registrados.")+'</div></div>';
+    }
   } else {
-    var q = s.last;
-    var mag = Number(q.mag).toFixed(1);
-    var sev = q.mag>=5 ? "hi" : (q.mag>=4 ? "mid" : "lo");
-    var place = q.place ? esc(q.place) : ("a "+q.distKm+" km de Lima");
-    var depth = (typeof q.depth==="number") ? (Math.round(q.depth)+" km prof.") : "";
-    var updated = s.online
-      ? ("Actualizado "+Seismic.timeAgo(s.fetchedAt))
-      : ("Sin conexión · datos de "+Seismic.timeAgo(s.fetchedAt));
+    var mag = Number(lq.mag).toFixed(1);
+    var sev = lq.mag>=5 ? "hi" : (lq.mag>=4 ? "mid" : "lo");
+    var place = lq.place ? esc(lq.place) : ("a "+lq.distKm+" km de Lima");
+    var depth = (typeof lq.depth==="number") ? (Math.round(lq.depth)+" km prof.") : "";
     body = '<div class="seis-card">'
       + '<div class="seis-mag '+sev+'">'+mag+'</div>'
       + '<div class="seis-info"><b>'+place+'</b>'
-        + '<small>'+Seismic.timeAgo(q.time)+' · '+q.distKm+' km de Lima'+(depth?(' · '+depth):'')+'</small></div>'
-      + '</div>'
-      + '<div class="seis-updated"><span class="dot '+(s.online?'on':'off')+'"></span>'+updated+' · fuente USGS</div>';
+        + '<small>'+Seismic.timeAgo(lq.time)+' · '+lq.distKm+' km de Lima'+(depth?(' · '+depth):'')+'</small></div>'
+      + '</div>';
+    upd = '<div class="seis-updated"><span class="dot '+(lq.online?'on':'off')+'"></span>'
+      + (lq.online?('Actualizado '+Seismic.timeAgo(lq.fetchedAt)):('Sin conexión · datos de '+Seismic.timeAgo(lq.fetchedAt)))
+      + ' · fuente '+lq.src+'</div>';
   }
-  return head + '<div style="padding:0 24px">'+body+'</div>';
+  return head + '<div style="padding:0 24px">'+body+'</div>' + upd;
 }
 
 /* ---------------- data ---------------- */
@@ -823,6 +846,7 @@ function render(){
 
 /* ---------------- init ---------------- */
 hydrateSeismicFromCache();
+igpLoadCache();
 ninoLoadCache();
 backendHydrate();
 render();
