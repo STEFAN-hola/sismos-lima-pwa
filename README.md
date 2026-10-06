@@ -100,6 +100,19 @@ SENAMHI **no tiene API REST con CORS**; sus avisos oficiales de lluvia viven en 
 
 > Para cambiar la frecuencia, edita el `cron` en `.github/workflows/deploy-pages.yml`. Para otra ciudad, cambia `LIMA` en `scripts/fetch_senamhi.py`.
 
+## Fase 2 — Zonas seguras (puntos personales + capa de riesgo)
+
+En el mapa de "Ruta de evacuación" hay dos capas conmutables:
+- **Mis puntos seguros** (por usuario, privados): el usuario registra puntos en su
+  vivienda con **foto (cámara)**, descripción y categoría (antisísmica / evacuación
+  por huaico), geolocalizados. Requieren iniciar sesión (correo OTP, o Google/Facebook
+  si se configuran en Supabase). Fotos en **Supabase Storage** (bucket privado, signed URLs).
+- **Riesgo general** (huaicos/fallas): se dibuja desde un **GeoJSON que tú alimentas**
+  (tabla `risk_zones` o `window.cargarRiesgo(geojson)`); **no incluye datos reales**.
+
+Setup en `supabase/SETUP_zonas.md` + SQL en `supabase/schema_zonas.sql`. El mapa usa
+**MapLibre** (ver `map.js`: `renderSafePoints`, `renderRiskLayer`).
+
 ## Límites pendientes (siguientes fases)
 
 - Sin backend ni autenticación/roles (datos y contactos son de ejemplo, viven en el dispositivo) → Supabase.

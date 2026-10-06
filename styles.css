@@ -224,6 +224,39 @@ svg.ic{display:block}
 .track-note .ic{color:var(--verde-oscuro);flex:none}
 .zone-example{font-size:12px;font-weight:700;color:var(--ambar-texto);background:var(--ambar-fondo);border-radius:10px;padding:8px 10px}
 
+/* ---------- zonas seguras: capas, pines, registro ---------- */
+.layer-toggles{display:flex;gap:10px}
+.layer-btn{flex:1;height:44px;border-radius:12px;border:1.5px solid var(--linea);background:var(--superficie);color:var(--texto-apoyo);font-size:13px;font-weight:700;padding:0 8px}
+.layer-btn.on.sp{background:var(--verde-suave);border-color:var(--verde-seguro);color:var(--verde-texto)}
+.layer-btn.on.rk{background:#FEF1F3;border-color:var(--rojo-wirbi);color:var(--rojo-oscuro)}
+.cta-soft{height:52px;border-radius:16px;background:var(--verde-suave);color:var(--verde-texto);font-size:16px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.cta-soft:active{filter:brightness(.97)}
+
+/* marcadores de punto seguro en el mapa */
+.sp-pin{width:34px;height:34px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(16,30,43,.35);cursor:pointer;padding:0}
+.sp-pin svg{transform:rotate(-45deg)}
+.sp-pin.sp-sismo{background:var(--verde-seguro)}
+.sp-pin.sp-huaico{background:var(--azul-confianza)}
+
+/* popup del punto seguro */
+.sp-popup .sp-cat{font-size:13px;font-weight:800;color:var(--azul-oscuro);margin-bottom:4px}
+.sp-popup .sp-desc{font-size:14px;font-weight:600;color:var(--tinta);margin-bottom:8px}
+.sp-popup .sp-photo{font-size:12px;color:var(--texto-apoyo)}
+.sp-popup .sp-photo img{width:100%;border-radius:10px;display:block}
+
+/* formulario de registro */
+.cat-row{display:flex;gap:10px}
+.cat-btn{flex:1;height:52px;border-radius:14px;border:2px solid var(--linea);background:var(--superficie);font-size:14px;font-weight:700;color:var(--texto-apoyo)}
+.cat-btn.on{border-color:var(--verde-seguro);background:var(--verde-suave);color:var(--verde-texto)}
+.reg-prev{width:100%;height:180px;border-radius:14px;object-fit:cover;display:block;background:var(--gris)}
+.reg-prev.empty{display:flex;align-items:center;justify-content:center;color:var(--texto-apoyo);font-size:14px;font-weight:600;border:1.5px dashed var(--linea-fuerte)}
+
+/* botones OAuth */
+.oauth-btn{height:52px;border-radius:14px;font-size:16px;font-weight:700;border:1.5px solid var(--linea);background:var(--superficie);color:var(--tinta);display:flex;align-items:center;justify-content:center}
+.oauth-btn.google{border-color:#DADCE0}
+.oauth-btn.facebook{background:#1877F2;color:#fff;border-color:#1877F2}
+.or-sep{text-align:center;font-size:13px;font-weight:600;color:var(--texto-apoyo);margin:4px 0}
+
 /* ---------- alerta ---------- */
 .alerta{position:absolute;inset:0;background:var(--rojo-wirbi);z-index:50;display:flex;flex-direction:column;color:#fff}
 .alerta .a-body{flex:1;display:flex;flex-direction:column;padding:8px 24px 24px;overflow-y:auto}

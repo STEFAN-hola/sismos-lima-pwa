@@ -83,11 +83,67 @@ var Backend = (function () {
     return rest("/rest/v1/emergency_contacts?id=eq."+encodeURIComponent(id), { method:"DELETE", prefer:"return=representation" });
   }
 
+  // ---- puntos seguros personales ----
+  function listSafePoints(){
+    return rest("/rest/v1/safe_points?select=id,category,description,lat,lon,photo_path,created_at&order=created_at.desc");
+  }
+  function insertSafePoint(row){
+    return rest("/rest/v1/safe_points", { method:"POST", prefer:"return=representation", body:row }).then(function(a){ return (a&&a[0])||null; });
+  }
+  function deleteSafePoint(id){
+    return rest("/rest/v1/safe_points?id=eq."+encodeURIComponent(id), { method:"DELETE", prefer:"return=representation" });
+  }
+
+  // ---- fotos en Storage (bucket privado 'safe-points') ----
+  function uploadSafePhoto(path, file){
+    var t = token();
+    return fetch(URL + "/storage/v1/object/safe-points/" + path, {
+      method:"POST",
+      headers:{ "apikey":KEY, "Authorization":"Bearer "+(t||KEY), "Content-Type": (file && file.type) || "image/jpeg", "x-upsert":"true" },
+      body: file
+    }).then(function(r){ if(!r.ok) return r.text().then(function(tx){ throw new Error("upload "+r.status+": "+tx); }); return r.json(); });
+  }
+  function signedPhotoUrl(path, expires){
+    return rest("/storage/v1/object/sign/safe-points/" + path, { method:"POST", body:{ expiresIn: expires||3600 } })
+      .then(function(d){ return (d && d.signedURL) ? (URL + "/storage/v1" + d.signedURL) : null; });
+  }
+
+  // ---- capa de riesgo (lectura pública) ----
+  function fetchRiskZones(){
+    return rest("/rest/v1/risk_zones?select=name,kind,severity,geometry,properties&active=eq.true").then(function(rows){
+      return { type:"FeatureCollection", features:(rows||[]).filter(function(r){ return r.geometry; }).map(function(r){
+        return { type:"Feature", geometry:r.geometry, properties: Object.assign({ name:r.name, kind:r.kind, severity:r.severity }, r.properties||{}) };
+      }) };
+    });
+  }
+
+  // ---- OAuth (Google / Facebook) ----
+  function oauthUrl(provider){
+    var appUrl = window.location.origin + window.location.pathname;
+    return URL + "/auth/v1/authorize?provider=" + encodeURIComponent(provider) + "&redirect_to=" + encodeURIComponent(appUrl);
+  }
+  function handleOAuthRedirect(){
+    var h = window.location.hash || "";
+    if(h.indexOf("access_token=") === -1) return Promise.resolve(null);
+    var p = {}; h.replace(/^#/,"").split("&").forEach(function(kv){ var i=kv.indexOf("="); if(i>0) p[decodeURIComponent(kv.slice(0,i))]=decodeURIComponent(kv.slice(i+1)); });
+    if(!p.access_token) return Promise.resolve(null);
+    var sess = { access_token:p.access_token, refresh_token:p.refresh_token,
+      expires_at: p.expires_at ? parseInt(p.expires_at,10) : (Math.floor(Date.now()/1000) + parseInt(p.expires_in||"3600",10)) };
+    try{ history.replaceState(null, "", window.location.pathname + window.location.search); }catch(e){}
+    return fetch(URL + "/auth/v1/user", { headers:{ "apikey":KEY, "Authorization":"Bearer "+sess.access_token } })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(u){ if(u){ sess.user = u; } setSession(sess); return sess; })
+      .catch(function(){ setSession(sess); return sess; });
+  }
+
   return {
     configured: configured,
     fetchContent: fetchContent,
     sendOtp: sendOtp, verifyOtp: verifyOtp, signOut: signOut,
     getSession: getSession, token: token, myProfile: myProfile, myEmail: myEmail, myUserId: myUserId,
-    insertContact: insertContact, updateContact: updateContact, deleteContact: deleteContact
+    insertContact: insertContact, updateContact: updateContact, deleteContact: deleteContact,
+    listSafePoints: listSafePoints, insertSafePoint: insertSafePoint, deleteSafePoint: deleteSafePoint,
+    uploadSafePhoto: uploadSafePhoto, signedPhotoUrl: signedPhotoUrl,
+    fetchRiskZones: fetchRiskZones, oauthUrl: oauthUrl, handleOAuthRedirect: handleOAuthRedirect
   };
 })();

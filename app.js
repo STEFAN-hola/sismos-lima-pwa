@@ -316,6 +316,71 @@ function refreshBackend(){
 function dirEmerg(){ return (backend.contacts && backend.contacts.length) ? backend.contacts : EMERG; }
 function dirAlb(){ return (backend.shelters && backend.shelters.length) ? backend.shelters : ALB; }
 
+/* ---------------- zonas seguras: puntos personales + capa de riesgo ---------------- */
+var safePoints = [];
+var layersOn = { mine:true, risk:true };
+var riskGeoJSON = null;   // alimentado por la BD (risk_zones) o window.cargarRiesgo()
+var reg = { category:"antisismica", description:"", photoFile:null, photoDataUrl:"", busy:false, msg:"" };
+
+function applyMapLayers(){
+  if(!routeMap || !window.MapLayers) return;
+  MapLayers.renderSafePoints(routeMap, layersOn.mine ? safePoints : [], onSafePointClick);
+  MapLayers.renderRiskLayer(routeMap, layersOn.risk ? riskGeoJSON : null);
+}
+function loadSafePoints(){
+  if(!(window.Backend && Backend.getSession())){ safePoints=[]; applyMapLayers(); return Promise.resolve(); }
+  return Backend.listSafePoints().then(function(a){ safePoints=a||[]; applyMapLayers(); }).catch(function(){});
+}
+function loadRisk(){
+  if(!(window.Backend && Backend.configured())) return;
+  Backend.fetchRiskZones().then(function(gj){ if(gj && gj.features && gj.features.length){ riskGeoJSON=gj; applyMapLayers(); } }).catch(function(){});
+}
+window.cargarRiesgo = function(gj){ riskGeoJSON = gj; applyMapLayers(); };
+
+function onSafePointClick(p){
+  if(!routeMap || !window.maplibregl) return;
+  var cat = (p.category==="evacuacion_huaico") ? "Evacuación (huaico)" : "Zona antisísmica";
+  var html = '<div class="sp-popup"><div class="sp-cat">'+cat+'</div>'
+    + (p.description ? ('<div class="sp-desc">'+esc(p.description)+'</div>') : '')
+    + (p.photo_path ? ('<div class="sp-photo" id="sp-photo-'+esc(p.id)+'">Cargando foto…</div>') : '')
+    + '</div>';
+  new maplibregl.Popup({ offset:24, maxWidth:"240px" }).setLngLat([p.lon,p.lat]).setHTML(html).addTo(routeMap);
+  if(p.photo_path){
+    Backend.signedPhotoUrl(p.photo_path).then(function(url){
+      var c=document.getElementById("sp-photo-"+p.id); if(c){ c.innerHTML = url ? ('<img src="'+url+'" alt="foto del punto seguro">') : '(sin foto)'; }
+    }).catch(function(){ var c=document.getElementById("sp-photo-"+p.id); if(c) c.textContent="(foto no disponible)"; });
+  }
+}
+function openRegister(){
+  if(!(window.Backend && Backend.getSession())){ login.returnTo="regpunto"; set({screen:"login"}); return; }
+  reg = { category:"antisismica", description:"", photoFile:null, photoDataUrl:"", busy:false, msg:"" };
+  set({screen:"regpunto"});
+}
+function saveRegPoint(){
+  if(reg.busy) return;
+  var de = document.getElementById("rpDesc"); if(de) reg.description = de.value;
+  function doSave(pos){
+    reg.busy=true; reg.msg=""; render();
+    var uid = Backend.myUserId();
+    var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (""+Date.now()+Math.random().toString(16).slice(2));
+    var path = uid + "/" + id + ".jpg";
+    var up = reg.photoFile ? Backend.uploadSafePhoto(path, reg.photoFile) : Promise.resolve(null);
+    up.then(function(){
+      return Backend.insertSafePoint({ id:id, category:reg.category, description:reg.description, lat:pos.lat, lon:pos.lon, photo_path: reg.photoFile?path:null });
+    }).then(function(){ reg.busy=false; return loadSafePoints(); })
+      .then(function(){ set({screen:"ruta"}); })
+      .catch(function(e){ reg.busy=false; reg.msg="No se pudo guardar: "+(e.message||"error"); render(); });
+  }
+  if(userPos){ doSave(userPos); }
+  else if(navigator.geolocation){
+    reg.busy=true; reg.msg="Obteniendo ubicación…"; render();
+    navigator.geolocation.getCurrentPosition(
+      function(p){ reg.busy=false; doSave({lat:p.coords.latitude, lon:p.coords.longitude}); },
+      function(){ reg.busy=false; reg.msg="No se pudo obtener tu ubicación. Activa el GPS."; render(); },
+      { enableHighAccuracy:true, timeout:15000 });
+  } else { reg.msg="Tu dispositivo no tiene GPS."; render(); }
+}
+
 /* ---------------- screens ---------------- */
 function screenHome(){
   var alert = state.alertActive;
@@ -358,7 +423,7 @@ function screenHome(){
   s.querySelector("#simular").addEventListener("click",function(){ triggerAlert(); });
   s.querySelector("#toggleData").addEventListener("click",function(){ set({hasMobileData:!state.hasMobileData}); });
   s.querySelector("#reset").addEventListener("click",function(){ state=Object.assign({},defaults); save(); render(); });
-  s.querySelector("#adminLink").addEventListener("click",function(){ set({screen: (window.Backend && Backend.getSession()) ? "admin" : "login"}); });
+  s.querySelector("#adminLink").addEventListener("click",function(){ if(window.Backend && Backend.getSession()){ set({screen:"admin"}); } else { login.returnTo="admin"; set({screen:"login"}); } });
   return s;
 }
 function tile(nav,color,ic,label){
@@ -486,6 +551,7 @@ function initRouteMap(zone){
       map.fitBounds(b, {padding:60, maxZoom:16});
       var chip = document.querySelector(".map-chip"); if(chip){ chip.innerHTML = '<span class="dot"></span>Mapa en vivo'; }
       if(userPos) updateMapLive(userPos, routeCurrentZone, false);
+      applyMapLayers(); loadSafePoints(); loadRisk();
     });
   }).catch(function(){ /* sin red/lib: queda el esquemático */ });
 }
@@ -566,11 +632,19 @@ function screenRuta(){
       + '</div>'
       + '<div class="instr" id="rz-instr">'+icon("arrow",22,2.4)+'<span>'+esc(initZone&&initZone.instructions?initZone.instructions:"Activa la ubicación para ver la zona más cercana a tus pasos.")+'</span></div>'
       + '<div class="track-note" id="rz-track">'+icon("pin",16,2.4)+'<span>Buscando tu ubicación…</span></div>'
+      + '<div class="layer-toggles">'
+        + '<button class="layer-btn sp'+(layersOn.mine?' on':'')+'" id="tglMine">Mis puntos seguros</button>'
+        + '<button class="layer-btn rk'+(layersOn.risk?' on':'')+'" id="tglRisk">Riesgo (huaicos/fallas)</button>'
+      + '</div>'
+      + '<button class="cta-soft" id="regPoint">＋ Registrar punto seguro aquí</button>'
       + '<button class="cta-tall" data-nav="dir">Ver directorio</button>'
     + '</div>'
   + '</div>';
   s.querySelectorAll("[data-nav]").forEach(function(b){ b.addEventListener("click",function(){ set({screen:b.getAttribute("data-nav")}); }); });
   bindBack(s);
+  var tm=s.querySelector("#tglMine"); if(tm) tm.addEventListener("click",function(){ layersOn.mine=!layersOn.mine; tm.classList.toggle("on",layersOn.mine); applyMapLayers(); });
+  var tr=s.querySelector("#tglRisk"); if(tr) tr.addEventListener("click",function(){ layersOn.risk=!layersOn.risk; tr.classList.toggle("on",layersOn.risk); applyMapLayers(); });
+  var rp=s.querySelector("#regPoint"); if(rp) rp.addEventListener("click",function(){ openRegister(); });
   routeCurrentZone = initZone;
   if(userPos){ fillSheet(userPos, nearestZone(userPos).zone); }
   if(navigator.onLine!==false && initZone){ setTimeout(function(){ initRouteMap(routeCurrentZone); }, 0); }
@@ -674,6 +748,41 @@ function screenNino(){
   return s;
 }
 
+function screenRegPunto(){
+  var s = el('<div class="screen"></div>');
+  if(!(window.Backend && Backend.getSession())){
+    setTimeout(function(){ login.returnTo="regpunto"; set({screen:"login"}); }, 0);
+    s.innerHTML = statusBar(false)
+      + '<div class="head-row"><button class="back blue" id="rpBack">'+icon("chevron",22,2.6)+'</button><h1>Registrar punto</h1></div>'
+      + '<div class="scroll"><div class="list"><div class="seis-card"><div class="seis-main">Inicia sesión para registrar tus puntos seguros…</div></div></div></div>';
+    s.querySelector("#rpBack").addEventListener("click",function(){ set({screen:"ruta"}); });
+    return s;
+  }
+  function catBtn(val,label){ return '<button class="cat-btn'+(reg.category===val?' on':'')+'" data-cat="'+val+'">'+label+'</button>'; }
+  var preview = reg.photoDataUrl ? '<img class="reg-prev" src="'+reg.photoDataUrl+'" alt="foto">' : '<div class="reg-prev empty">Sin foto aún</div>';
+  s.innerHTML = statusBar(false)
+  + '<div class="head-row"><button class="back blue" id="rpBack">'+icon("chevron",22,2.6)+'</button><h1>Registrar punto seguro</h1></div>'
+  + '<div class="scroll"><div class="form">'
+    + '<label class="flabel">Categoría</label>'
+    + '<div class="cat-row">'+catBtn("antisismica","Zona antisísmica")+catBtn("evacuacion_huaico","Evacuación (huaico)")+'</div>'
+    + '<label class="flabel">Foto</label>'
+    + preview
+    + '<input type="file" accept="image/*" capture="environment" id="rpPhoto" class="finput">'
+    + '<label class="flabel">Descripción</label>'
+    + '<input class="finput" id="rpDesc" placeholder="Ej. Debajo de la mesa del comedor" value="'+esc(reg.description)+'">'
+    + '<button class="btn-primary" id="rpSave"'+(reg.busy?' disabled':'')+'>'+(reg.busy?'Guardando…':'Guardar punto aquí')+'</button>'
+    + (reg.msg?'<div class="fmsg">'+esc(reg.msg)+'</div>':'')
+    + '<p class="fhint">Se guarda en tu ubicación actual (GPS). Solo tú ves tus puntos; la foto es privada.</p>'
+  + '</div></div>';
+  s.querySelector("#rpBack").addEventListener("click",function(){ set({screen:"ruta"}); });
+  s.querySelectorAll("[data-cat]").forEach(function(b){ b.addEventListener("click",function(){ reg.category=b.getAttribute("data-cat"); render(); }); });
+  var ph=s.querySelector("#rpPhoto");
+  if(ph) ph.addEventListener("change",function(){ var f=ph.files&&ph.files[0]; if(f){ reg.photoFile=f; var rd=new FileReader(); rd.onload=function(){ reg.photoDataUrl=rd.result; render(); }; rd.readAsDataURL(f); } });
+  var de=s.querySelector("#rpDesc"); if(de) de.addEventListener("input",function(){ reg.description=de.value; });
+  var sv=s.querySelector("#rpSave"); if(sv) sv.addEventListener("click",saveRegPoint);
+  return s;
+}
+
 function screenLogin(){
   var s = el('<div class="screen"></div>');
   var body;
@@ -681,11 +790,14 @@ function screenLogin(){
     body = '<div class="list"><div class="seis-card"><div class="seis-main">Backend no configurado.</div></div></div>';
   } else if(login.step==="email"){
     body = '<div class="form">'
-      + '<label class="flabel">Correo del administrador</label>'
-      + '<input class="finput" type="email" id="email" inputmode="email" autocomplete="email" placeholder="admin@ejemplo.com" value="'+esc(login.email)+'">'
+      + '<button class="oauth-btn google" id="oauthGoogle">Continuar con Google</button>'
+      + '<button class="oauth-btn facebook" id="oauthFacebook">Continuar con Facebook</button>'
+      + '<div class="or-sep">o con tu correo</div>'
+      + '<label class="flabel">Correo</label>'
+      + '<input class="finput" type="email" id="email" inputmode="email" autocomplete="email" placeholder="tucorreo@ejemplo.com" value="'+esc(login.email)+'">'
       + '<button class="btn-primary" id="sendBtn"'+(login.busy?' disabled':'')+'>'+(login.busy?'Enviando…':'Enviar código')+'</button>'
       + (login.msg?'<div class="fmsg">'+esc(login.msg)+'</div>':'')
-      + '<p class="fhint">Te llega un código de 6 dígitos al correo. El ciudadano no necesita cuenta.</p>'
+      + '<p class="fhint">Te llega un código de 6 dígitos. Google/Facebook requieren estar configurados en Supabase.</p>'
       + '</div>';
   } else {
     body = '<div class="form">'
@@ -697,10 +809,12 @@ function screenLogin(){
       + '</div>';
   }
   s.innerHTML = statusBar(false)
-    + '<div class="head-row"><button class="back blue" data-back>'+icon("chevron",22,2.6)+'</button><h1>Acceso administrador</h1></div>'
+    + '<div class="head-row"><button class="back blue" data-back>'+icon("chevron",22,2.6)+'</button><h1>Iniciar sesión</h1></div>'
     + '<div class="scroll">'+body+'</div>';
   bindBack(s);
   if(login.step==="email"){
+    var og=s.querySelector("#oauthGoogle"); if(og) og.addEventListener("click",function(){ window.location.href = Backend.oauthUrl("google"); });
+    var of=s.querySelector("#oauthFacebook"); if(of) of.addEventListener("click",function(){ window.location.href = Backend.oauthUrl("facebook"); });
     var sb=s.querySelector("#sendBtn");
     if(sb) sb.addEventListener("click",function(){
       var em=(s.querySelector("#email").value||"").trim();
@@ -716,7 +830,7 @@ function screenLogin(){
       if(!code){ login.msg="Escribe el código."; render(); return; }
       login.busy=true; login.msg=""; render();
       Backend.verifyOtp(login.email, code).then(function(){ login.busy=false; backend.authed=true; return Backend.myProfile(); })
-        .then(function(p){ backend.profile=p; login.step="email"; login.msg=""; set({screen:"admin"}); })
+        .then(function(p){ backend.profile=p; login.step="email"; login.msg=""; var dest=login.returnTo||"admin"; login.returnTo=null; set({screen:dest}); })
         .catch(function(){ login.busy=false; login.msg="Código inválido o expirado."; render(); });
     });
     var be=s.querySelector("#backEmail");
@@ -838,6 +952,7 @@ function render(){
     case "nino": view=screenNino(); break;
     case "login": view=screenLogin(); break;
     case "admin": view=screenAdmin(); break;
+    case "regpunto": view=screenRegPunto(); break;
     case "alerta": view=screenAlerta(); break;
     default: view=screenHome();
   }
@@ -851,3 +966,8 @@ ninoLoadCache();
 backendHydrate();
 render();
 startSeismic();
+if(window.Backend && Backend.handleOAuthRedirect){
+  Backend.handleOAuthRedirect().then(function(sess){
+    if(sess){ backend.authed=true; Backend.myProfile().then(function(p){ backend.profile=p; render(); }); loadSafePoints(); }
+  });
+}
