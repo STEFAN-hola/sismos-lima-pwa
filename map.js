@@ -42,6 +42,12 @@ var MapLayers = (function () {
     if(map.getSource("riskzones")) map.removeSource("riskzones");
   }
 
+  // color por nivel FONDES (5 niveles); si no hay 'nivel', usa 'severity' (cargas manuales)
+  var RISK_COLOR = ["match", ["get","nivel"],
+    "Muy Alto","#B00020", "Alto","#E8552F", "Medio","#E7A200", "Bajo","#7FB800", "Muy Bajo","#2E9E5B",
+    ["match", ["get","severity"], "alto","#D51C39", "medio","#E7A200", "bajo","#0F8A5F", "#8A5BB0"]
+  ];
+
   // geojson: Feature | FeatureCollection | geometry-array (lo normalizamos)
   function renderRiskLayer(map, geojson){
     if(!map || !window.maplibregl) return;
@@ -51,16 +57,37 @@ var MapLayers = (function () {
     var fc = normalize(geojson);
     if(!fc.features.length) return;
     map.addSource("riskzones", { type:"geojson", data: fc });
-    var bySeverity = ["match", ["get","severity"], "alto","#D51C39", "medio","#E7A200", "bajo","#0F8A5F", "#8A5BB0"];
     map.addLayer({ id:"risk-fill", type:"fill", source:"riskzones",
       filter:["==",["geometry-type"],"Polygon"],
-      paint:{ "fill-color": bySeverity, "fill-opacity":0.22 } });
+      paint:{ "fill-color": RISK_COLOR, "fill-opacity":0.5 } });
     map.addLayer({ id:"risk-line", type:"line", source:"riskzones",
       filter:["in",["geometry-type"],["literal",["Polygon","LineString"]]],
-      paint:{ "line-color": bySeverity, "line-width":2 } });
+      paint:{ "line-color": RISK_COLOR, "line-width":1 } });
     map.addLayer({ id:"risk-point", type:"circle", source:"riskzones",
       filter:["==",["geometry-type"],"Point"],
-      paint:{ "circle-color": bySeverity, "circle-radius":7, "circle-stroke-color":"#fff", "circle-stroke-width":2 } });
+      paint:{ "circle-color": RISK_COLOR, "circle-radius":7, "circle-stroke-color":"#fff", "circle-stroke-width":2 } });
+    if(!map.__riskClickBound){
+      map.on("click", "risk-fill", function(e){
+        var p = (e.features && e.features[0] && e.features[0].properties) || {};
+        var txt = (p.name || "Zona") + (p.nivel ? (" — Riesgo: " + p.nivel) : "")
+          + ((p.prov || p.dep) ? ("\n" + [p.prov, p.dep].filter(Boolean).join(", ")) : "");
+        new maplibregl.Popup({ offset:6 }).setLngLat(e.lngLat).setText(txt).addTo(map);
+      });
+      map.on("mouseenter", "risk-fill", function(){ map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "risk-fill", function(){ map.getCanvas().style.cursor = ""; });
+      map.__riskClickBound = true;
+    }
+  }
+
+  // bounding box de un GeoJSON (para encuadrar el mapa)
+  function boundsOf(geojson){
+    if(!window.maplibregl) return null;
+    var b = null;
+    function ext(c){ if(!b){ b = new maplibregl.LngLatBounds(c, c); } else { b.extend(c); } }
+    function walk(coords){ if(typeof coords[0] === "number"){ ext(coords); } else { for(var i=0;i<coords.length;i++) walk(coords[i]); } }
+    var fc = normalize(geojson);
+    fc.features.forEach(function(f){ if(f.geometry && f.geometry.coordinates) walk(f.geometry.coordinates); });
+    return b;
   }
 
   function normalize(g){
@@ -98,7 +125,7 @@ var MapLayers = (function () {
 
   return {
     renderSafePoints: renderSafePoints, clearSafePoints: clearSafePoints,
-    renderRiskLayer: renderRiskLayer, removeRisk: removeRisk,
+    renderRiskLayer: renderRiskLayer, removeRisk: removeRisk, boundsOf: boundsOf,
     renderEvacZones: renderEvacZones, clearEvacZones: clearEvacZones
   };
 })();

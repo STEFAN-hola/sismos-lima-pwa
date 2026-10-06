@@ -332,11 +332,32 @@ function loadSafePoints(){
   if(!(window.Backend && Backend.getSession())){ safePoints=[]; applyMapLayers(); return Promise.resolve(); }
   return Backend.listSafePoints().then(function(a){ safePoints=a||[]; applyMapLayers(); }).catch(function(){});
 }
+var RISK_FILES = ["./data/riesgo-tumbes-piura.geojson"];
+var riskFitDone = false;
 function loadRisk(){
-  if(!(window.Backend && Backend.configured())) return;
-  Backend.fetchRiskZones().then(function(gj){ if(gj && gj.features && gj.features.length){ riskGeoJSON=gj; applyMapLayers(); } }).catch(function(){});
+  var collected = [];
+  function apply(){ riskGeoJSON = { type:"FeatureCollection", features: collected }; applyMapLayers(); maybeFitRisk(); }
+  // capa coroplética FONDES (archivos estáticos)
+  RISK_FILES.forEach(function(url){
+    fetch(url, {cache:"no-store"}).then(function(r){ return r.ok ? r.json() : null; }).then(function(fc){
+      if(fc && fc.features){ collected = collected.concat(fc.features); apply(); }
+    }).catch(function(){});
+  });
+  // capas cargadas por admin en risk_zones (si hay backend)
+  if(window.Backend && Backend.configured()){
+    Backend.fetchRiskZones().then(function(gj){ if(gj && gj.features && gj.features.length){ collected = collected.concat(gj.features); apply(); } }).catch(function(){});
+  }
 }
-window.cargarRiesgo = function(gj){ riskGeoJSON = gj; applyMapLayers(); };
+function maybeFitRisk(){
+  if(riskFitDone) return;
+  if(!(routeMap && window.MapLayers && layersOn.risk && riskGeoJSON && riskGeoJSON.features && riskGeoJSON.features.length)) return;
+  var b = MapLayers.boundsOf(riskGeoJSON);
+  if(b){ try{ routeMap.fitBounds(b, { padding:40, maxZoom:9 }); riskFitDone = true; }catch(e){} }
+}
+function fitToRisk(){
+  if(routeMap && window.MapLayers && riskGeoJSON){ var b = MapLayers.boundsOf(riskGeoJSON); if(b){ try{ routeMap.fitBounds(b, { padding:40, maxZoom:9 }); }catch(e){} } }
+}
+window.cargarRiesgo = function(gj){ riskGeoJSON = gj; riskFitDone = false; applyMapLayers(); maybeFitRisk(); };
 
 function onSafePointClick(p){
   if(!routeMap || !window.maplibregl) return;
@@ -638,6 +659,13 @@ function screenRuta(){
       + '<div id="routemap" class="routemap" hidden></div>'
       + '<div class="map-overlay"><button class="back" data-back>'+icon("chevron",22,2.6)+'</button>'
         + '<div class="map-chip"><span class="dot"></span>'+chipText+'</div></div>'
+      + '<div class="risk-legend"><b>Riesgo (CENEPRED)</b>'
+        + '<span><i style="background:#B00020"></i>Muy alto</span>'
+        + '<span><i style="background:#E8552F"></i>Alto</span>'
+        + '<span><i style="background:#E7A200"></i>Medio</span>'
+        + '<span><i style="background:#7FB800"></i>Bajo</span>'
+        + '<span><i style="background:#2E9E5B"></i>Muy bajo</span>'
+      + '</div>'
     + '</div>'
     + '<div class="sheet">'
       + '<div><div class="eyebrow" style="color:var(--verde-oscuro)">Zona segura más cercana</div>'
@@ -661,7 +689,7 @@ function screenRuta(){
   s.querySelectorAll("[data-nav]").forEach(function(b){ b.addEventListener("click",function(){ set({screen:b.getAttribute("data-nav")}); }); });
   bindBack(s);
   var tm=s.querySelector("#tglMine"); if(tm) tm.addEventListener("click",function(){ layersOn.mine=!layersOn.mine; tm.classList.toggle("on",layersOn.mine); applyMapLayers(); });
-  var tr=s.querySelector("#tglRisk"); if(tr) tr.addEventListener("click",function(){ layersOn.risk=!layersOn.risk; tr.classList.toggle("on",layersOn.risk); applyMapLayers(); });
+  var tr=s.querySelector("#tglRisk"); if(tr) tr.addEventListener("click",function(){ layersOn.risk=!layersOn.risk; tr.classList.toggle("on",layersOn.risk); applyMapLayers(); if(layersOn.risk){ fitToRisk(); } });
   var rp=s.querySelector("#regPoint"); if(rp) rp.addEventListener("click",function(){ openRegister(); });
   routeCurrentZone = initZone;
   if(userPos){ fillSheet(userPos, nearestZone(userPos).zone); }

@@ -206,6 +206,10 @@ svg.ic{display:block}
 /* id para ganar especificidad sobre .maplibregl-map (que fuerza position:relative) */
 #routemap{position:absolute;top:0;right:0;bottom:0;left:0;height:auto;z-index:1}
 #routemap .maplibregl-ctrl-attrib{font-size:10px}
+.risk-legend{position:absolute;left:12px;bottom:12px;z-index:2;background:rgba(255,255,255,.92);border-radius:12px;padding:8px 10px;box-shadow:0 4px 12px rgba(16,30,43,.16);font-size:11px;font-weight:600;color:var(--tinta);display:flex;flex-direction:column;gap:3px;max-width:150px}
+.risk-legend b{font-size:11px;font-weight:800;margin-bottom:2px}
+.risk-legend span{display:flex;align-items:center;gap:6px}
+.risk-legend i{width:12px;height:12px;border-radius:3px;display:inline-block;flex:none}
 .map-overlay{position:absolute;top:12px;left:16px;right:16px;display:flex;align-items:center;gap:12px;z-index:2}
 .map-overlay .back{background:var(--fondo);color:var(--azul-confianza);box-shadow:0 4px 12px rgba(16,30,43,.16)}
 .map-chip{height:44px;border-radius:14px;background:var(--fondo);box-shadow:0 4px 12px rgba(16,30,43,.16);display:flex;align-items:center;gap:8px;padding:0 14px;font-size:14px;font-weight:700}
